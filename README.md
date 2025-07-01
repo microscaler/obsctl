@@ -1,93 +1,128 @@
-# obsctl
+# upload\_obs
 
+A robust, production-grade command-line tool that recursively uploads files from a local directory to an S3-compatible object storage (e.g., Cloud.ru OBS), while ensuring data integrity by skipping files that are still being written.
 
+---
 
-## Getting started
+## 🔧 Why It Was Written
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+Typical `aws s3 sync` tools do not:
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+* Detect file descriptor collisions or write-in-progress conditions
+* Integrate with systemd for service health signaling
+* Emit OpenTelemetry (OTEL) traces for observability
+* Provide complete retry logic and configurable concurrency
 
-## Add your files
+`obsctl` was designed specifically for mission-critical backup and archival scenarios (e.g., in regulated, industrial, or compliance-sensitive contexts).
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+---
 
+## How It Works
+
+1. Recursively traverses the source directory using `walkdir`
+2. For each file:
+
+    * Checks that it has **not been modified in the last 2 seconds**
+    * Checks that **no process has it open for writing** via `/proc/<pid>/fd/`
+3. If the file is stable, it uploads to the target bucket using AWS S3 API
+4. Uses retry logic with exponential backoff on failure
+5. Reports status via OTEL to a configurable telemetry endpoint
+6. Notifies systemd of `READY` and `STOPPING` states
+
+---
+
+## Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant Sys as Systemd Timer
+    participant App as obsctl (Rust CLI)
+    participant FS as Filesystem
+    participant PROC as /proc/<pid>/fd
+    participant S3 as Cloud.ru OBS
+    participant OTEL as Telemetry Receiver
+
+    Sys->>App: ExecStart via systemd
+    App->>App: sd_notify(READY)
+    App->>FS: Walk source directory
+    loop For each file
+        App->>FS: Check modified timestamp
+        App->>PROC: Check if fd open by another process
+        alt File open or modified recently
+            App->>App: Log skip
+        else
+            App->>S3: Upload via PutObject
+            S3-->>App: 200 OK
+            App->>OTEL: emit upload_success
+        end
+    end
+    App->>OTEL: emit summary payload
+    App->>App: sd_notify(STOPPING)
+    App->>Sys: exit 0 or 1
 ```
-cd existing_repo
-git remote add origin https://gitlab-cloud.metro-cc.ru/msuite/3v/obsctl.git
-git branch -M master
-git push -uf origin master
+
+---
+
+## Safety Guarantees
+
+* Files still open for write **are never uploaded**
+* Files modified within last 2 seconds are treated as unsafe
+* Logs open FD owner PID for audit
+* Fails fast if telemetry fails (but does not block uploads)
+
+---
+
+## Usage Example
+
+```sh
+obsctl \
+  --source /sftp/export \
+  --bucket mcm-backups \
+  --prefix daily/ \
+  --endpoint https://obs.ru-moscow-1.hc.sbercloud.ru \
+  --region ru-moscow-1 \
+  --http-timeout 15 \
+  --max-concurrent 6 \
+  --debug info
 ```
 
-## Integrate with your tools
+Set credentials via environment:
 
-- [ ] [Set up project integrations](https://gitlab-cloud.metro-cc.ru/msuite/3v/obsctl/-/settings/integrations)
+```sh
+export AWS_ACCESS_KEY_ID="tenant:accesskey"
+export AWS_SECRET_ACCESS_KEY="secret"
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://otel-receiver.example.com/v1/traces"
+```
 
-## Collaborate with your team
+---
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## 🧪 Tests
 
-## Test and Deploy
+* Unit tests validate:
 
-Use the built-in continuous integration in GitLab.
+    * Key path formatting
+    * CLI parsing
+    * FD detection correctness
+* Can be run with:
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+```sh
+cargo test
+```
 
-***
+---
 
-# Editing this README
+## Features
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+* Parallel uploads with `--max-concurrent`
+* OpenTelemetry span + summary export
+* Rust async performance (via Tokio)
+* Systemd integration
+* Retry-safe
 
-## Suggestions for a good README
+---
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
 
-## Name
-Choose a self-explaining name for your project.
+## 📄 License
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+MIT or Apache 2.0
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.

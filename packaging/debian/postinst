@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+# Post-install script for obsctl
+# This can reload systemd if desired or setup defaults
+
+echo "obsctl installed."
+if command -v systemctl >/dev/null; then
+  echo "Reloading systemd daemon..."
+  systemctl daemon-reexec
+fi

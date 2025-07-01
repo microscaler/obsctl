@@ -1,13 +1,86 @@
-# You can override the included template(s) by including variable overrides
-# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-# Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
-# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
-# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
-# Note that environment variables can be set in several places
-# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
-stages:
-- test
-sast:
-  stage: test
+# GitLab CI configuration for obsctl
+
 include:
-- template: Security/SAST.gitlab-ci.yml
+  - local: .gitlab-ci.secure.yml
+
+stages:
+  - check
+  - test
+  - build
+  - scan
+  - package
+
+variables:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+
+image: registry.gitlab.com/YOUR_NAMESPACE/obsctl-builder:latest
+
+before_script:
+  # Everything needed is pre-installed in the custom Docker image
+  - echo "Builder image loaded with just, cargo-audit, clippy, fmt, etc."
+
+check:
+  stage: check
+  script:
+    - cargo fmt --all -- --check
+    - cargo clippy --all-targets --all-features -- -D warnings
+    - cargo check
+
+test:
+  stage: test
+  script:
+    - cargo test --all
+
+build:
+  stage: build
+  cache:
+    key: target-cache
+    paths:
+      - target/
+  script:
+    - docker build --target exportable -f .docker/Dockerfile -t obsctl_build .
+    - docker cp $(docker create obsctl_build):/obsctl target/release/obsctl
+  artifacts:
+    name: "obsctl-bin-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - target/release/obsctl
+      - cargo build --release
+      - target/release/obsctl
+    expire_in: 1 week
+
+release:
+  stage: package
+  script:
+    - echo "Creating release for $CI_COMMIT_TAG"
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  needs: [deb]
+  release:
+    name: "Release $CI_COMMIT_TAG"
+    description: "Automated release of obsctl version $CI_COMMIT_TAG"
+    tag_name: "$CI_COMMIT_TAG"
+    assets:
+      links:
+        - name: obsctl .deb package
+          url: "$CI_PROJECT_URL/-/jobs/$CI_JOB_ID/artifacts/file/upload-obs_$CI_COMMIT_TAG_amd64.deb"
+package:
+  stage: package
+  script:
+    - mkdir -p dist
+    - strip target/release/obsctl
+    - cp target/release/obsctl dist/
+    - echo "VERSION=$(git describe --tags --always --dirty)" > dist/version.txt
+
+deb:
+  stage: package
+  image: rust:1.72-slim
+  dependencies:
+    - build
+  script:
+    - just deb
+  artifacts:
+    paths:
+      - upload-obs_*.deb
+      - dist/
+    expire_in: 1 week

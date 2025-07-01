@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+# Pre-removal script for obsctl
+# Used to clean up units or configuration
+
+if systemctl is-enabled --quiet obsctl.timer; then
+  echo "Disabling obsctl.timer..."
+  systemctl disable --now obsctl.timer
+fi
+
+if systemctl is-enabled --quiet obsctl.service; then
+  echo "Disabling obsctl.service..."
+  systemctl disable --now obsctl.service
+fi

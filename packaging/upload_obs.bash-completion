@@ -1,0 +1,13 @@
+_upload_obs_completions()
+{
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    opts="--source --bucket --prefix --endpoint --region --http-timeout --max-concurrent --max-retries --debug --dry-run"
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    fi
+}
+complete -F _upload_obs_completions upload_obs

@@ -1,0 +1,10 @@
+# obsctl config template
+# Place custom runtime options here, referenced via --config or ENV overrides
+
+# Example:
+# export AWS_ACCESS_KEY_ID="tenant:key"
+# export AWS_SECRET_ACCESS_KEY="secret"
+# export OTEL_EXPORTER_OTLP_ENDPOINT="https://otel.example.com/otlp"
+
+# obsctl runtime CLI options (optional override)
+# OPTIONS="--region ru-moscow-1 --debug info"

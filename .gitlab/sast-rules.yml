@@ -1,0 +1,32 @@
+# GitLab CI: Combined SAST + Dependency Scanning for Rust
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+
+stages:
+  - check
+  - test
+  - build
+  - scan
+  - package
+
+sast:
+  stage: scan
+  variables:
+    SAST_EXCLUDED_PATHS: "tests/,target/,examples/"
+    SAST_INCLUDE_PATHS: "src/"
+    SAST_ANALYZER_IMAGE: "registry.gitlab.com/gitlab-org/security-products/analyzers/cargo-audit:latest"
+  artifacts:
+    paths:
+      - gl-sast-report.json
+    reports:
+      sast: gl-sast-report.json
+  allow_failure: false
+
+dependency_scanning:
+  stage: scan
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+  allow_failure: false

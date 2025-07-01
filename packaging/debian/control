@@ -1,0 +1,7 @@
+Package: upload-obs
+Version: 0.1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Metro
+Description: Uploads local files to S3-compatible OBS with systemd and telemetry integration.
