@@ -17,9 +17,10 @@ This document tracks all outstanding and completed tasks required to bring the `
 
 ### Task 3: Version compatibility fixes
 
-* [ ] Update Rust to 1.78+ (to support edition 2024)
+* [ ] Update Rust to nightly (to support edition 2024)
 * [ ] Replace `aws_smithy_client::timeout::TimeoutConfig` with `aws_smithy_types::timeout::TimeoutConfig`
 * [ ] Update `Cargo.toml` with compatible versions for `aws-sdk-s3`, `aws-config`, etc.
+* [ ] Ensure all dependencies are compatible with the latest Rust edition
 
 ### Task 4: Resolve `?` mismatches
 
