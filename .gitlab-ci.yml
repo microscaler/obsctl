@@ -4,8 +4,7 @@ include:
   - local: .gitlab/secure.yml
 
 stages:
-  - check
-  - test
+  - builder-image
   - build
   - scan
   - package
@@ -36,7 +35,6 @@ builder-image:
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
       when: always
-
 
 build:
   stage: build
