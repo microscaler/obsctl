@@ -1,7 +1,7 @@
 # GitLab CI configuration for obsctl
 
 include:
-  - local: .gitlab-ci.secure.yml
+  - local: .gitlab/secure.yml
 
 stages:
   - check
