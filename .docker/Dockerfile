@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y \
   curl \
   ca-certificates
 
-RUN cargo install cargo-audit cargo-fmt
+RUN rustup component add rustfmt clippy 
+RUN cargo install cargo-audit
 
 WORKDIR /usr/src/app
 COPY . .
