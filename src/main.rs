@@ -12,7 +12,8 @@ use reqwest::Client as HttpClient;
 use sd_notify::NotifyState;
 use serde_json::json;
 use simplelog::{
-    ColorChoice, CombinedLogger, ConfigBuilder, LevelFilter, TermLogger, TerminalMode, WriteLogger,
+    ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter, SharedLogger, TermLogger,
+    TerminalMode, WriteLogger,
 };
 
 use std::env::args;
@@ -26,9 +27,56 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+#[cfg(target_os = "linux")]
 use systemd_journal_logger::JournalLog;
 use tokio::{sync::Semaphore, task::JoinSet, time::sleep};
 use walkdir::WalkDir;
+
+#[cfg(target_os = "linux")]
+struct JournalLogger {
+    inner: JournalLog,
+    level: LevelFilter,
+}
+
+#[cfg(target_os = "linux")]
+impl JournalLogger {
+    fn new(level: LevelFilter) -> std::io::Result<Box<dyn SharedLogger>> {
+        Ok(Box::new(JournalLogger {
+            inner: JournalLog::new()?,
+            level,
+        }))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl log::Log for JournalLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= self.level
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            self.inner.log(record);
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+#[cfg(target_os = "linux")]
+impl SharedLogger for JournalLogger {
+    fn level(&self) -> LevelFilter {
+        self.level
+    }
+
+    fn config(&self) -> Option<&Config> {
+        None
+    }
+
+    fn as_log(self: Box<Self>) -> Box<dyn log::Log> {
+        self
+    }
+}
 
 /// Uploads a folder recursively to a S3-compatible bucket (e.g., Cloud.ru OBS)
 #[derive(Parser, Debug)]
@@ -132,16 +180,30 @@ async fn main() -> Result<()> {
     std::env::set_var("AWS_LOG_LEVEL", &args.debug);
     std::env::set_var("AWS_SMITHY_LOG", &args.debug);
 
-    CombinedLogger::init(vec![
+    #[cfg(target_os = "linux")]
+    let loggers: Vec<Box<dyn SharedLogger>> = vec![
         TermLogger::new(
             level,
             log_config.clone(),
             TerminalMode::Stdout,
             ColorChoice::Auto,
         ),
-        WriteLogger::new(LevelFilter::Warn, log_config, stderr()),
-    ])
-    .expect("Failed to initialize terminal logger");
+        WriteLogger::new(LevelFilter::Warn, log_config.clone(), stderr()),
+        JournalLogger::new(level)?,
+    ];
+
+    #[cfg(not(target_os = "linux"))]
+    let loggers: Vec<Box<dyn SharedLogger>> = vec![
+        TermLogger::new(
+            level,
+            log_config.clone(),
+            TerminalMode::Stdout,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(LevelFilter::Warn, log_config.clone(), stderr()),
+    ];
+
+    CombinedLogger::init(loggers).expect("Failed to initialize logger");
 
     let region_provider = RegionProviderChain::first_try(Some(Region::new(args.region.clone())))
         .or_default_provider()
