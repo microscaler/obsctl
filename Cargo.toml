@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-config = "1"
-aws-sdk-s3 = "1"
-aws-smithy-types-convert = { version = "0.30.0-alpha", features = ["convert-chrono"] }
-aws-smithy-client = { version = "0.30.0-alpha" }
+aws-config = "1.8.0"
+aws-sdk-s3 = "1.94.0"
+aws-smithy-client = { version = "0.60" }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 log = "0.4"
