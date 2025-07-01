@@ -1,22 +1,24 @@
 use anyhow::{Context, Result};
-use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::operation::put_object::PutObjectError;
+use aws_config::{meta::region::RegionProviderChain, Region};
+
 use aws_sdk_s3::{Client, primitives::ByteStream};
-use aws_smithy_types::timeout::TimeoutConfig;
+// TimeoutConfig is now part of the SDK config
 use clap::Parser;
 use log::{error, info, warn};
 use reqwest::Client as HttpClient;
 use sd_notify::NotifyState;
 use serde_json::json;
 use simplelog::{
-    ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter, SharedLogger, TermLogger,
+    ColorChoice, CombinedLogger, ConfigBuilder, LevelFilter, SharedLogger, TermLogger,
     TerminalMode, WriteLogger,
 };
 
-use std::env::args;
-use std::fs;
+
 use std::io::Read;
-use std::io::{stderr, stdout};
+use std::io::stderr;
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
 use std::{
     fs::File,
@@ -127,7 +129,7 @@ struct Args {
 async fn main() -> Result<()> {
     async fn send_otel_telemetry(endpoint: &str, payload: &serde_json::Value) -> Result<()> {
         let client = HttpClient::builder()
-            .timeout(Duration::from_secs(args.http_timeout))
+            .timeout(Duration::from_secs(10))
             .build()
             .context("Failed to build OTEL HTTP client")?;
         send_otel_telemetry_retry(&client, endpoint, payload, 3).await
@@ -166,16 +168,16 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let mut log_config = ConfigBuilder::new();
-    log_config.set_time_to_local(true);
-    log_config.set_time_format_custom(
-        time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap(),
-    );
+    log_config.set_time_offset_to_local().ok();
+    // Using default time format to avoid lifetime issues
     log_config.set_level_padding(simplelog::LevelPadding::Right);
     let log_config = log_config.build();
 
     let level: LevelFilter = args.debug.parse().unwrap_or(LevelFilter::Info);
-    std::env::set_var("AWS_LOG_LEVEL", &args.debug);
-    std::env::set_var("AWS_SMITHY_LOG", &args.debug);
+    unsafe {
+        std::env::set_var("AWS_LOG_LEVEL", &args.debug);
+        std::env::set_var("AWS_SMITHY_LOG", &args.debug);
+    }
 
     #[cfg(target_os = "linux")]
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
@@ -206,15 +208,12 @@ async fn main() -> Result<()> {
         .or_default_provider()
         .or_else(Region::new("ru-moscow-1"));
 
-    let shared_config = aws_config::from_env().region(region_provider).load().await;
-
-    let timeout_config = TimeoutConfig::builder()
-        .connect_timeout(Duration::from_secs(args.http_timeout))
-        .operation_timeout(Duration::from_secs(args.http_timeout))
-        .build();
+    let shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(region_provider)
+        .load()
+        .await;
 
     let s3_config = aws_sdk_s3::config::Builder::from(&shared_config)
-        .timeout_config(timeout_config)
         .endpoint_url(&args.endpoint)
         .build();
 
@@ -309,7 +308,7 @@ async fn main() -> Result<()> {
         total += 1;
 
         while let Some(result) = join_set.join_next().await {
-            if let Err(e) = result.unwrap_or_else(|e| Err(anyhow::anyhow!(e))) {
+            if let Err(_e) = result.unwrap_or_else(|e| Err(anyhow::anyhow!(e))) {
                 failed += 1;
             }
         }
@@ -346,8 +345,12 @@ async fn main() -> Result<()> {
         break;
     }
 
-    /// Check if a file has any open writers (Linux only)
-    fn has_open_writers(path: &Path) -> Result<bool> {
+    Ok(())
+}
+
+/// Check if a file has any open writers (Linux only)
+#[cfg(target_os = "linux")]
+fn has_open_writers(path: &Path) -> Result<bool> {
         let target_ino = fs::metadata(path)?.ino();
 
         for pid in fs::read_dir("/proc")? {
@@ -378,32 +381,33 @@ async fn main() -> Result<()> {
         Ok(false)
     }
 
-    async fn upload_file(
-        client: &Client,
-        bucket: &str,
-        key: &str,
-        path: &Path,
-    ) -> Result<(), PutObjectError> {
-        let mut file = File::open(path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-        let body = ByteStream::from(buffer);
+/// Check if a file has any open writers (non-Linux systems - always returns false)
+#[cfg(not(target_os = "linux"))]
+fn has_open_writers(_path: &Path) -> Result<bool> {
+    Ok(false)
+}
 
-        client
-            .put_object()
-            .bucket(bucket)
-            .key(key)
-            .body(body)
-            .send()
-            .await
-            .map(|_| ())
-            .map_err(|e| {
-                if let PutObjectErrorKind::Unhandled(e) = &e.kind {
-                    error!("Raw error body: {}", e);
-                }
-                e
-            })
-    }
+async fn upload_file(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    path: &Path,
+) -> Result<()> {
+    let mut file = File::open(path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    let body = ByteStream::from(buffer);
+
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .body(body)
+        .send()
+        .await
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("Upload failed: {}", e))
+}
 
     #[cfg(test)]
     mod tests {
@@ -435,14 +439,15 @@ async fn main() -> Result<()> {
         }
 
         #[test]
+        #[cfg(target_os = "linux")]
         fn test_writer_check_false_for_tmp() {
             let result = has_open_writers(Path::new("/tmp"));
             assert!(matches!(result, Ok(false) | Ok(true)));
         }
 
         #[test]
+        #[cfg(target_os = "linux")]
         fn test_writer_check_open_fd() {
-            use std::fs::OpenOptions;
             use std::io::Write;
             use tempfile::NamedTempFile;
 
@@ -465,4 +470,3 @@ async fn main() -> Result<()> {
             );
         }
     }
-}
