@@ -23,8 +23,8 @@ RUN cargo build --release
 
 # Stage 2: Minimal output image (optional if needed)
 FROM debian:bullseye-slim AS exportable
-LABEL maintainer="Microscaler"
+LABEL maintainer="Metro"
 
-COPY --from=builder /usr/src/app/target/release/obsctl /upload_obs
+COPY --from=builder /usr/src/app/target/release/obsctl /obsctl
 
 ENTRYPOINT ["/obsctl"]
