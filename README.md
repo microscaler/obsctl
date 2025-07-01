@@ -36,7 +36,7 @@ Typical `aws s3 sync` tools do not:
 ```mermaid
 sequenceDiagram
     participant Sys as Systemd Timer
-    participant App as obsctl (Rust CLI)
+    participant App as obsctl (CLI)
     participant FS as Filesystem
     participant PROC as /proc/<pid>/fd
     participant S3 as Cloud.ru OBS
