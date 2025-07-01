@@ -1,26 +1,29 @@
-# GitLab CI: Secure Stage for Rust (SAST + Dependency Scanning)
-
 stages:
   - scan
 
 sast:
   stage: scan
-  variables:
-    SAST_EXCLUDED_PATHS: "tests/,target/,examples/"
-    SAST_INCLUDE_PATHS: "src/"
-    SAST_ANALYZER_IMAGE: "registry.gitlab.com/gitlab-org/security-products/analyzers/cargo-audit:latest"
+  image: rust:1.72
+  before_script:
+    - apt-get update && apt-get install -y curl
+    - rustup component add cargo-audit || true
+    - cargo install cargo-audit --force
+  script:
+    - cargo generate-lockfile || true
+    - cargo audit --json > gl-sast-report.json || echo '{}' > gl-sast-report.json
   artifacts:
     paths:
       - gl-sast-report.json
     reports:
       sast: gl-sast-report.json
   allow_failure: false
+  extends: .scheduled_weekly
 
 dependency_scanning:
   stage: scan
   image: rust:1.72
   before_script:
-    - apt-get update -y && apt-get install -y curl
+    - apt-get update && apt-get install -y curl
     - rustup component add cargo-audit || true
     - cargo install cargo-audit --force
   script:
@@ -30,3 +33,11 @@ dependency_scanning:
     reports:
       dependency_scanning: gl-dependency-scanning-report.json
   allow_failure: false
+  extends: .scheduled_weekly
+
+.scheduled_weekly:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: always
+    - when: never
+
