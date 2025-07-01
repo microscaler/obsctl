@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
   curl \
   ca-certificates && \
   curl -fsSL https://just.systems/install.sh | bash -s -- --to /usr/local/bin && \
-  cargo install cargo-audit
+  cargo install cargo-audit cargo-fmt
 
 WORKDIR /usr/src/app
 COPY . .
