@@ -1,0 +1,6 @@
+# .nextest.toml
+
+[profile.default]
+fail-fast = false
+status-level = "slow"
+retries = 1
