@@ -14,7 +14,7 @@ variables:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
-image: registry.gitlab.com/YOUR_NAMESPACE/obsctl-builder:latest
+image: registry.gitlab.com/msuite/3v/obsctl-builder:latest
 
 before_script:
   # Everything needed is pre-installed in the custom Docker image
