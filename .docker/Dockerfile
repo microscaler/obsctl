@@ -1,4 +1,4 @@
-FROM rust:1.81-slim-bullseye AS builder
+FROM rustlang/rust:nightly-slim AS builder
 
 RUN apt-get update && apt-get install -y \
   pkg-config \
