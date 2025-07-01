@@ -1,7 +1,4 @@
-# Multi-stage Dockerfile to build and export the upload_obs binary cleanly
-
-# Stage 1: Builder
-FROM rust:1.72-slim-bullseye as builder
+FROM rust:1.78-slim-bullseye AS builderbuilder
 
 RUN apt-get update && apt-get install -y \
   pkg-config \
