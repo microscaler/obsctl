@@ -1,4 +1,4 @@
-# upload\_obs
+# obsctl
 
 A robust, production-grade command-line tool that recursively uploads files from a local directory to an S3-compatible object storage (e.g., Cloud.ru OBS), while ensuring data integrity by skipping files that are still being written.
 
