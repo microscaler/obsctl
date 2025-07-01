@@ -77,7 +77,7 @@ sequenceDiagram
 ```sh
 obsctl \
   --source /sftp/export \
-  --bucket mcm-backups \
+  --bucket my-backups \
   --prefix daily/ \
   --endpoint https://obs.ru-moscow-1.hc.sbercloud.ru \
   --region ru-moscow-1 \
