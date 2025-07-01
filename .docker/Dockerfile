@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile to build and export the obsctl binary cleanly
+# Multi-stage Dockerfile to build and export the upload_obs binary cleanly
 
 # Stage 1: Builder
 FROM rust:1.72-slim-bullseye as builder
@@ -16,12 +16,18 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /usr/src/app
 COPY . .
 
+# Run checks and tests as part of the build
+RUN cargo fmt --all -- --check
+RUN cargo clippy --all-targets --all-features -- -D warnings
+RUN cargo check
+RUN cargo test --all
+
 RUN cargo build --release
 
 # Stage 2: Minimal output image (optional if needed)
 FROM debian:bullseye-slim AS exportable
-LABEL maintainer="Metro"
+LABEL maintainer="Microscaler"
 
-COPY --from=builder /usr/src/app/target/release/obsctl /obsctl
+COPY --from=builder /usr/src/app/target/release/obsctl /upload_obs
 
 ENTRYPOINT ["/obsctl"]

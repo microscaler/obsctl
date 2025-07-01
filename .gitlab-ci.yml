@@ -14,23 +14,29 @@ variables:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
-image: registry.gitlab.com/msuite/3v/obsctl-builder:latest
-
 before_script:
   # Everything needed is pre-installed in the custom Docker image
   - echo "Builder image loaded with just, cargo-audit, clippy, fmt, etc."
 
-check:
-  stage: check
+builder-image:
+  stage: docker
+  image: docker:24.0.6
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    IMAGE_NAME: registry.gitlab.com/msuite-3v/obsctl:builder
+  before_script:
+    - docker info
   script:
-    - cargo fmt --all -- --check
-    - cargo clippy --all-targets --all-features -- -D warnings
-    - cargo check
+    - docker build -f .docker/Dockerfile -t "$IMAGE_NAME" .
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" "$CI_REGISTRY" --password-stdin
+    - docker push "$IMAGE_NAME"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: always
 
-test:
-  stage: test
-  script:
-    - cargo test --all
 
 build:
   stage: build
@@ -40,12 +46,11 @@ build:
       - target/
   script:
     - docker build --target exportable -f .docker/Dockerfile -t obsctl_build .
-    - docker cp $(docker create obsctl_build):/obsctl target/release/obsctl
+    - docker cp $(docker create obsctl_build):/upload_obs target/release/obsctl
+    - mv target/release/upload_obs target/release/obsctl
   artifacts:
     name: "obsctl-bin-$CI_COMMIT_SHORT_SHA"
     paths:
-      - target/release/obsctl
-      - cargo build --release
       - target/release/obsctl
     expire_in: 1 week
 
