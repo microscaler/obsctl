@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::operation::put_object::PutObjectError;
-use aws_sdk_s3::operation::put_object::PutObjectError;
 use aws_sdk_s3::{Client, primitives::ByteStream};
 use aws_smithy_client::hyper_ext::Adapter;
 use aws_smithy_client::timeout::TimeoutConfig;

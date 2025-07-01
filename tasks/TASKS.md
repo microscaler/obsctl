@@ -8,7 +8,7 @@ This document tracks all outstanding and completed tasks required to bring the `
 
 ### Task 1: Fix duplicate imports
 
-* [ ] Remove duplicate `use aws_sdk_s3::operation::put_object::PutObjectError;`
+* [x] Remove duplicate `use aws_sdk_s3::operation::put_object::PutObjectError;`
 
 ### Task 2: Platform-specific logging
 
