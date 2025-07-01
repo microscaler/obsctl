@@ -6,8 +6,7 @@ RUN apt-get update && apt-get install -y \
   build-essential \
   libclang-dev \
   curl \
-  ca-certificates \
-  just
+  ca-certificates
 
 RUN cargo install cargo-audit cargo-fmt
 
