@@ -1,0 +1,36 @@
+# Chocolatey uninstall script for obsctl
+# This script is executed when 'choco uninstall obsctl' is run
+
+$ErrorActionPreference = 'Stop'
+
+# Package information
+$packageName = 'obsctl'
+$toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
+$obsctlPath = Join-Path $toolsDir "windows-x64"
+
+# Remove obsctl from system PATH
+try {
+    Uninstall-ChocolateyPath $obsctlPath -PathType 'Machine'
+    Write-Host "Removed obsctl from system PATH" -ForegroundColor Green
+} catch {
+    Write-Warning "Could not remove obsctl from PATH. You may need to manually remove: $obsctlPath"
+}
+
+# Optional: Clean up configuration files (ask user)
+$configPath = "$env:USERPROFILE\.aws"
+if (Test-Path $configPath) {
+    Write-Host ""
+    Write-Host "Note: AWS configuration files remain at: $configPath" -ForegroundColor Yellow
+    Write-Host "These contain your credentials and settings." -ForegroundColor Yellow
+    Write-Host "To remove them manually: Remove-Item -Recurse '$configPath'" -ForegroundColor Yellow
+}
+
+# Optional: Clean up OTEL configuration
+$otelPath = "$env:USERPROFILE\.aws\otel"
+if (Test-Path $otelPath) {
+    Write-Host "OTEL configuration remains at: $otelPath" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "obsctl has been uninstalled successfully!" -ForegroundColor Green
+Write-Host "Please restart your terminal to complete the removal." -ForegroundColor Yellow 

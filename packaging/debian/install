@@ -1,0 +1,16 @@
+# obsctl Debian package installation paths
+
+# Main binary
+target/release/obsctl usr/bin/
+
+# Man page
+packaging/obsctl.1 usr/share/man/man1/
+
+# Bash completion
+packaging/obsctl.bash-completion usr/share/bash-completion/completions/obsctl
+
+# Dashboard files
+packaging/dashboards/*.json usr/share/obsctl/dashboards/
+
+# Configuration template
+packaging/debian/config etc/obsctl/

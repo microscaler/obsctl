@@ -1,0 +1,924 @@
+{
+  "summary": {
+    "total_tests": 16,
+    "passed_tests": 9,
+    "failed_tests": 7,
+    "error_tests": 0,
+    "total_time": 1.6429789066314697,
+    "pass_rate": 56.25
+  },
+  "results": {
+    "otel": [
+      {
+        "test_id": "otel_0000",
+        "category": "otel",
+        "description": "OTEL: enabled from otel, endpoint from otel",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4318\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:26 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20811009407043457,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4318",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20811009407043457,
+        "test_case": {
+          "test_id": "otel_0000",
+          "category": "otel",
+          "description": "OTEL: enabled from otel, endpoint from otel",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "otel",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "otel",
+          "otel_endpoint_value": "http://localhost:4318",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4318",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0001",
+        "category": "otel",
+        "description": "OTEL: enabled from otel, endpoint from config",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4317\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:26 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:26 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20728182792663574,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4317",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20728182792663574,
+        "test_case": {
+          "test_id": "otel_0001",
+          "category": "otel",
+          "description": "OTEL: enabled from otel, endpoint from config",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "otel",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "config",
+          "otel_endpoint_value": "http://localhost:4317",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4317",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0002",
+        "category": "otel",
+        "description": "OTEL: enabled from otel, endpoint from env",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4317\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20673704147338867,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "Endpoint mismatch: expected http://localhost:4319, got http://localhost:4317"
+          ],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4317",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20673704147338867,
+        "test_case": {
+          "test_id": "otel_0002",
+          "category": "otel",
+          "description": "OTEL: enabled from otel, endpoint from env",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "otel",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "env",
+          "otel_endpoint_value": "http://localhost:4319",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4319",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0003",
+        "category": "otel",
+        "description": "OTEL: enabled from otel, endpoint from missing",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4317\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20714378356933594,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4317",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20714378356933594,
+        "test_case": {
+          "test_id": "otel_0003",
+          "category": "otel",
+          "description": "OTEL: enabled from otel, endpoint from missing",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "otel",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "missing",
+          "otel_endpoint_value": null,
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": null,
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0004",
+        "category": "otel",
+        "description": "OTEL: enabled from config, endpoint from otel",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4318\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20159482955932617,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4318",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20159482955932617,
+        "test_case": {
+          "test_id": "otel_0004",
+          "category": "otel",
+          "description": "OTEL: enabled from config, endpoint from otel",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "config",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "otel",
+          "otel_endpoint_value": "http://localhost:4318",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4318",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0005",
+        "category": "otel",
+        "description": "OTEL: enabled from config, endpoint from config",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4317\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20239806175231934,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4317",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20239806175231934,
+        "test_case": {
+          "test_id": "otel_0005",
+          "category": "otel",
+          "description": "OTEL: enabled from config, endpoint from config",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "config",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "config",
+          "otel_endpoint_value": "http://localhost:4317",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4317",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0006",
+        "category": "otel",
+        "description": "OTEL: enabled from config, endpoint from env",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4317\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.19971108436584473,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "Endpoint mismatch: expected http://localhost:4319, got http://localhost:4317"
+          ],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4317",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.19971108436584473,
+        "test_case": {
+          "test_id": "otel_0006",
+          "category": "otel",
+          "description": "OTEL: enabled from config, endpoint from env",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "config",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "env",
+          "otel_endpoint_value": "http://localhost:4319",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4319",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0007",
+        "category": "otel",
+        "description": "OTEL: enabled from config, endpoint from missing",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4317\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20106196403503418,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4317",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.20106196403503418,
+        "test_case": {
+          "test_id": "otel_0007",
+          "category": "otel",
+          "description": "OTEL: enabled from config, endpoint from missing",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "config",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "missing",
+          "otel_endpoint_value": null,
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": null,
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0008",
+        "category": "otel",
+        "description": "OTEL: enabled from env, endpoint from otel",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4318\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.2019057273864746,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4318",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.2019057273864746,
+        "test_case": {
+          "test_id": "otel_0008",
+          "category": "otel",
+          "description": "OTEL: enabled from env, endpoint from otel",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "env",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "otel",
+          "otel_endpoint_value": "http://localhost:4318",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4318",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0009",
+        "category": "otel",
+        "description": "OTEL: enabled from env, endpoint from config",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: OpenTelemetry is disabled\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20434880256652832,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "OTEL enabled mismatch: expected True, got False"
+          ],
+          "otel_enabled": false,
+          "endpoint_used": null,
+          "service_name_used": null,
+          "file_operations_success": false
+        },
+        "execution_time": 0.20434880256652832,
+        "test_case": {
+          "test_id": "otel_0009",
+          "category": "otel",
+          "description": "OTEL: enabled from env, endpoint from config",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "env",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "config",
+          "otel_endpoint_value": "http://localhost:4317",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4317",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0010",
+        "category": "otel",
+        "description": "OTEL: enabled from env, endpoint from env",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: OpenTelemetry is disabled\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.19924306869506836,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "OTEL enabled mismatch: expected True, got False"
+          ],
+          "otel_enabled": false,
+          "endpoint_used": null,
+          "service_name_used": null,
+          "file_operations_success": false
+        },
+        "execution_time": 0.19924306869506836,
+        "test_case": {
+          "test_id": "otel_0010",
+          "category": "otel",
+          "description": "OTEL: enabled from env, endpoint from env",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "env",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "env",
+          "otel_endpoint_value": "http://localhost:4319",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4319",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0011",
+        "category": "otel",
+        "description": "OTEL: enabled from env, endpoint from missing",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:27 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: OpenTelemetry is disabled\n12:38:27 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.19933390617370605,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "OTEL enabled mismatch: expected True, got False"
+          ],
+          "otel_enabled": false,
+          "endpoint_used": null,
+          "service_name_used": null,
+          "file_operations_success": false
+        },
+        "execution_time": 0.19933390617370605,
+        "test_case": {
+          "test_id": "otel_0011",
+          "category": "otel",
+          "description": "OTEL: enabled from env, endpoint from missing",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "env",
+          "otel_enabled_value": true,
+          "otel_endpoint_source": "missing",
+          "otel_endpoint_value": null,
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": null,
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0012",
+        "category": "otel",
+        "description": "OTEL: enabled from missing, endpoint from otel",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\ude80 Initializing OpenTelemetry SDK with gRPC endpoint: http://localhost:4318\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udcca Service: obsctl v0.1.0\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udfaf Using proper SDK instead of manual HTTP requests\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udeab Manual HTTP requests DISABLED\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83d\udccb Creating OTEL resource with service info\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Tracer provider initialized successfully\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \u2705 Meter provider initialized with 1-second export interval\n12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: \ud83c\udf89 OpenTelemetry SDK initialization complete\n12:38:28 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.1992199420928955,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": true,
+          "endpoint_used": "http://localhost:4318",
+          "service_name_used": "obsctl",
+          "file_operations_success": false
+        },
+        "execution_time": 0.1992199420928955,
+        "test_case": {
+          "test_id": "otel_0012",
+          "category": "otel",
+          "description": "OTEL: enabled from missing, endpoint from otel",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "missing",
+          "otel_enabled_value": null,
+          "otel_endpoint_source": "otel",
+          "otel_endpoint_value": "http://localhost:4318",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4318",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0013",
+        "category": "otel",
+        "description": "OTEL: enabled from missing, endpoint from config",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: OpenTelemetry is disabled\n12:38:28 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.2021949291229248,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "OTEL enabled mismatch: expected True, got False"
+          ],
+          "otel_enabled": false,
+          "endpoint_used": null,
+          "service_name_used": null,
+          "file_operations_success": false
+        },
+        "execution_time": 0.2021949291229248,
+        "test_case": {
+          "test_id": "otel_0013",
+          "category": "otel",
+          "description": "OTEL: enabled from missing, endpoint from config",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "missing",
+          "otel_enabled_value": null,
+          "otel_endpoint_source": "config",
+          "otel_endpoint_value": "http://localhost:4317",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4317",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0014",
+        "category": "otel",
+        "description": "OTEL: enabled from missing, endpoint from env",
+        "status": "FAIL",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: OpenTelemetry is disabled\n12:38:28 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20513296127319336,
+          "files_tested": []
+        },
+        "verification": {
+          "success": false,
+          "failures": [
+            "OTEL enabled mismatch: expected True, got False"
+          ],
+          "otel_enabled": false,
+          "endpoint_used": null,
+          "service_name_used": null,
+          "file_operations_success": false
+        },
+        "execution_time": 0.20513296127319336,
+        "test_case": {
+          "test_id": "otel_0014",
+          "category": "otel",
+          "description": "OTEL: enabled from missing, endpoint from env",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "missing",
+          "otel_enabled_value": null,
+          "otel_endpoint_source": "env",
+          "otel_endpoint_value": "http://localhost:4319",
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": true,
+          "expected_endpoint": "http://localhost:4319",
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      },
+      {
+        "test_id": "otel_0015",
+        "category": "otel",
+        "description": "OTEL: enabled from missing, endpoint from missing",
+        "status": "PASS",
+        "result": {
+          "results": {
+            "ls": {
+              "stdout": "12:38:28 \u001b[0m\u001b[36m[DEBUG] \u001b[0m(1) obsctl::otel: OpenTelemetry is disabled\n12:38:28 \u001b[0m\u001b[34m[INFO] \u001b[0mListing all buckets\n",
+              "stderr": "Error: dispatch failure\n\nCaused by:\n    0: other\n    1: the credential provider was not enabled\n    2: no providers in chain provided credentials\n",
+              "returncode": 1,
+              "command": "./target/release/obsctl --debug debug ls"
+            }
+          },
+          "execution_time": 0.20005106925964355,
+          "files_tested": []
+        },
+        "verification": {
+          "success": true,
+          "failures": [],
+          "otel_enabled": false,
+          "endpoint_used": null,
+          "service_name_used": null,
+          "file_operations_success": false
+        },
+        "execution_time": 0.20005106925964355,
+        "test_case": {
+          "test_id": "otel_0015",
+          "category": "otel",
+          "description": "OTEL: enabled from missing, endpoint from missing",
+          "aws_access_key_id_source": "env",
+          "aws_access_key_id_value": "AKIATEST12345",
+          "aws_secret_access_key_source": "env",
+          "aws_secret_access_key_value": "testsecret12345",
+          "aws_session_token_source": "missing",
+          "aws_session_token_value": null,
+          "region_source": "default",
+          "region_value": "us-east-1",
+          "endpoint_url_source": "env",
+          "endpoint_url_value": "http://localhost:9000",
+          "output_source": "default",
+          "output_value": "json",
+          "otel_enabled_source": "missing",
+          "otel_enabled_value": null,
+          "otel_endpoint_source": "missing",
+          "otel_endpoint_value": null,
+          "otel_service_name_source": "default",
+          "otel_service_name_value": "obsctl",
+          "expected_aws_works": true,
+          "expected_otel_enabled": false,
+          "expected_endpoint": null,
+          "expected_service_name": "obsctl",
+          "expected_region": "us-east-1"
+        },
+        "files_tested": []
+      }
+    ]
+  }
+}

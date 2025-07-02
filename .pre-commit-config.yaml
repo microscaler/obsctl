@@ -1,0 +1,49 @@
+# Pre-commit hooks for obsctl - Essential quality gates
+repos:
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+  # Conventional commits enforcement
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert", "--optional-scopes", "api,cli,otel,config,packaging,ci,docs,tests", "--strict"]
+
+  # Rust-specific hooks (essential only)
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: Cargo Format Check
+        entry: cargo fmt
+        args: ["--all", "--check"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: Cargo Check Compilation
+        entry: cargo check
+        args: ["--all-targets", "--all-features"]
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+# Global configuration
+default_stages: [pre-commit]
+fail_fast: false
+minimum_pre_commit_version: "3.0.0"

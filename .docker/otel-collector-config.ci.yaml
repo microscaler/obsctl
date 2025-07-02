@@ -1,0 +1,64 @@
+# Lightweight OpenTelemetry Collector Configuration for CI/CD
+# Optimized for GitHub Actions resource constraints
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Minimal processing for CI
+  batch:
+    timeout: 1s
+    send_batch_size: 50
+    send_batch_max_size: 100
+
+  # Memory limiter to prevent OOM in CI
+  memory_limiter:
+    limit_mib: 128
+    spike_limit_mib: 32
+    check_interval: 5s
+
+exporters:
+  # Logging exporter for CI debugging
+  logging:
+    verbosity: normal
+    sampling_initial: 2
+    sampling_thereafter: 500
+
+  # Prometheus metrics for testing
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+    namespace: obsctl_ci
+    const_labels:
+      environment: ci
+      service: obsctl
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging, prometheus]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging]
+
+  extensions: []
+
+  # Minimal telemetry for CI
+  telemetry:
+    logs:
+      level: "warn"
+    metrics:
+      address: 0.0.0.0:8888

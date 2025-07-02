@@ -1,0 +1,314 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Pre-commit hooks validation (runs first)
+  pre-commit:
+    name: Pre-commit Hooks
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Install pre-commit
+      run: pip install pre-commit
+
+    - name: Cache pre-commit
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pre-commit
+        key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+    - name: Run pre-commit hooks
+      run: |
+        # Skip heavy operations in CI
+        SKIP=cargo-test,cargo-audit pre-commit run --all-files
+
+  # Test on multiple platforms
+  test:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: pre-commit  # Wait for pre-commit to pass
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Run clippy
+      run: cargo clippy -- -D warnings
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+  # Build test for cross-compilation targets
+  build-test:
+    name: Build Test ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-gnu
+            os: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install cross-compilation tools
+      if: matrix.os == 'ubuntu-latest' && matrix.target != 'x86_64-unknown-linux-gnu'
+      run: |
+        cargo install cross --git https://github.com/cross-rs/cross
+
+    - name: Build for target
+      run: |
+        if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.target }}" != "x86_64-unknown-linux-gnu" ]; then
+          cross build --target ${{ matrix.target }}
+        else
+          cargo build --target ${{ matrix.target }}
+        fi
+      shell: bash
+
+  # Security audit
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+  # Check packaging templates
+  packaging-check:
+    name: Packaging Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check Chocolatey templates
+      run: |
+        echo "Checking Chocolatey templates..."
+        if [ -f "packaging/chocolatey/obsctl.nuspec.template" ]; then
+          echo "✓ Chocolatey nuspec template found"
+        else
+          echo "✗ Chocolatey nuspec template missing"
+          exit 1
+        fi
+        
+        if [ -f "packaging/chocolatey/chocolateyinstall.ps1.template" ]; then
+          echo "✓ Chocolatey install template found"
+        else
+          echo "✗ Chocolatey install template missing"
+          exit 1
+        fi
+        
+        if [ -f "packaging/chocolatey/chocolateyuninstall.ps1.template" ]; then
+          echo "✓ Chocolatey uninstall template found"
+        else
+          echo "✗ Chocolatey uninstall template missing"
+          exit 1
+        fi
+
+    - name: Check Homebrew formula
+      run: |
+        echo "Checking Homebrew formula..."
+        if [ -f "packaging/homebrew/obsctl.rb" ]; then
+          echo "✓ Homebrew formula found"
+        else
+          echo "✗ Homebrew formula missing"
+          exit 1
+        fi
+
+    - name: Check Debian packaging
+      run: |
+        echo "Checking Debian packaging files..."
+        if [ -f "packaging/debian/control" ]; then
+          echo "✓ Debian control file found"
+        else
+          echo "✗ Debian control file missing"
+          exit 1
+        fi
+        
+        if [ -f "packaging/debian/postinst" ]; then
+          echo "✓ Debian postinst script found"
+        else
+          echo "✗ Debian postinst script missing"
+          exit 1
+        fi
+
+    - name: Check man page and completion
+      run: |
+        echo "Checking documentation files..."
+        if [ -f "packaging/obsctl.1" ]; then
+          echo "✓ Man page found"
+        else
+          echo "✗ Man page missing"
+          exit 1
+        fi
+        
+        if [ -f "packaging/obsctl.bash-completion" ]; then
+          echo "✓ Bash completion found"
+        else
+          echo "✗ Bash completion missing"
+          exit 1
+        fi
+
+    - name: Check dashboard files
+      run: |
+        echo "Checking dashboard files..."
+        if [ -d "packaging/dashboards" ]; then
+          dashboard_count=$(ls packaging/dashboards/*.json 2>/dev/null | wc -l)
+          if [ "$dashboard_count" -gt 0 ]; then
+            echo "✓ Dashboard files found ($dashboard_count files)"
+          else
+            echo "✗ No dashboard JSON files found"
+            exit 1
+          fi
+        else
+          echo "✗ Dashboard directory missing"
+          exit 1
+        fi
+
+  # Integration test simulation
+  integration-test:
+    name: Integration Test Simulation
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build obsctl
+      run: cargo build --release
+
+    - name: Test basic functionality
+      run: |
+        # Test help command
+        ./target/release/obsctl --help
+        
+        # Test version command
+        ./target/release/obsctl --version
+        
+        # Test config help
+        ./target/release/obsctl config --help
+        
+        # Test dashboard help
+        ./target/release/obsctl config dashboard --help
+
+    - name: Test configuration examples
+      run: |
+        # Test config examples (should not fail)
+        ./target/release/obsctl config --example || true
+        ./target/release/obsctl config --env || true
+        ./target/release/obsctl config --otel || true
+
+  # Documentation check
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check README
+      run: |
+        if [ -f "README.md" ]; then
+          echo "✓ README.md found"
+          # Check for key sections
+          if grep -q "Installation" README.md; then
+            echo "✓ Installation section found"
+          else
+            echo "⚠ Installation section missing from README"
+          fi
+        else
+          echo "✗ README.md missing"
+          exit 1
+        fi
+
+    - name: Check documentation consistency
+      run: |
+        echo "Checking documentation consistency..."
+        
+        # Check if Chocolatey is mentioned in README
+        if grep -q -i "chocolatey\|choco" README.md; then
+          echo "✓ Chocolatey installation mentioned in README"
+        else
+          echo "⚠ Chocolatey installation not mentioned in README"
+        fi
+        
+        # Check if Homebrew is mentioned
+        if grep -q -i "homebrew\|brew" README.md; then
+          echo "✓ Homebrew installation mentioned in README"
+        else
+          echo "⚠ Homebrew installation not mentioned in README"
+        fi

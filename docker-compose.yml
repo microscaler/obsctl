@@ -1,0 +1,139 @@
+# Docker Compose for obsctl with OpenTelemetry observability stack
+# Supports CI mode via environment variables
+
+services:
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.93.0
+    container_name: obsctl-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver (HTTP removed - gRPC only)
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus exporter metrics
+    depends_on:
+      - jaeger
+      - prometheus
+    networks:
+      - obsctl-network
+    # CI overrides via environment variables
+    mem_limit: ${OTEL_MEM_LIMIT:-1g}
+    cpus: ${OTEL_CPUS:-1.0}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - ${OTEL_PROFILE:-default}
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: obsctl-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14250:14250"  # gRPC
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - obsctl-network
+    mem_limit: ${JAEGER_MEM_LIMIT:-512m}
+    cpus: ${JAEGER_CPUS:-0.5}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - ${JAEGER_PROFILE:-default}
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: obsctl-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+      - '--web.listen-address=0.0.0.0:9090'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./.docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - obsctl-network
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-512m}
+    cpus: ${PROMETHEUS_CPUS:-0.5}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - ${PROMETHEUS_PROFILE:-default}
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: obsctl-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/obsctl-unified.json
+      - GF_LIVE_ALLOWED_ORIGINS=*
+      - GF_QUERY_TIMEOUT=60s
+      - GF_DATAPROXY_TIMEOUT=60
+      - GF_PANELS_ENABLE_ALPHA=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./.docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./.docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./.docker/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+    depends_on:
+      - prometheus
+    networks:
+      - obsctl-network
+    mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
+    cpus: ${GRAFANA_CPUS:-0.5}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - ${GRAFANA_PROFILE:-default}
+
+  # MinIO for S3-compatible storage (for testing obsctl)
+  minio:
+    image: minio/minio:RELEASE.2023-11-20T22-40-07Z
+    container_name: obsctl-minio
+    command: server ${MINIO_DATA_DIR:-/data} --address "0.0.0.0:9000" --console-address "0.0.0.0:9001"
+    ports:
+      - "9000:9000"   # MinIO API
+      - "9001:9001"   # MinIO Console
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+      # CI optimizations (can be overridden)
+      - MINIO_CACHE_DRIVES=${MINIO_CACHE_DRIVES:-on}
+      - MINIO_CACHE_EXCLUDE=${MINIO_CACHE_EXCLUDE:-"*.tmp"}
+      - MINIO_CACHE_QUOTA=${MINIO_CACHE_QUOTA:-80}
+      - MINIO_CACHE_AFTER=${MINIO_CACHE_AFTER:-3}
+      - MINIO_CACHE_WATERMARK_LOW=${MINIO_CACHE_WATERMARK_LOW:-70}
+      - MINIO_CACHE_WATERMARK_HIGH=${MINIO_CACHE_WATERMARK_HIGH:-90}
+    volumes:
+      - ${MINIO_VOLUME_TYPE:-minio_data}:${MINIO_DATA_DIR:-/data}
+    networks:
+      - obsctl-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: ${MINIO_HEALTH_INTERVAL:-30s}
+      timeout: ${MINIO_HEALTH_TIMEOUT:-20s}
+      retries: ${MINIO_HEALTH_RETRIES:-3}
+    mem_limit: ${MINIO_MEM_LIMIT:-8g}
+    cpus: ${MINIO_CPUS:-2}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - ${MINIO_PROFILE:-default}
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  minio_data:
+
+networks:
+  obsctl-network:
+    driver: bridge

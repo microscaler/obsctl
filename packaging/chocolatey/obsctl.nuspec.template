@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>obsctl</id>
+    <version>{{VERSION}}</version>
+    <packageSourceUrl>https://github.com/your-org/obsctl</packageSourceUrl>
+    <owners>obsctl Team</owners>
+    <title>obsctl - S3-Compatible CLI with Observability</title>
+    <authors>obsctl Team</authors>
+    <projectUrl>https://github.com/your-org/obsctl</projectUrl>
+    <copyright>Copyright © {{YEAR}} obsctl Team</copyright>
+    <licenseUrl>https://github.com/your-org/obsctl/blob/master/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/your-org/obsctl</projectSourceUrl>
+    <docsUrl>https://github.com/your-org/obsctl/blob/master/README.md</docsUrl>
+    <bugTrackerUrl>https://github.com/your-org/obsctl/issues</bugTrackerUrl>
+    <tags>s3 cli aws storage opentelemetry observability grafana dashboard rust</tags>
+    <summary>High-performance S3-compatible CLI tool with built-in OpenTelemetry observability and Grafana dashboard support</summary>
+    <description>obsctl is a high-performance S3-compatible CLI tool written in Rust with built-in OpenTelemetry observability and automated Grafana dashboard support. Features complete S3 API compatibility, real-time metrics, Grafana dashboard integration, and cross-platform support.</description>
+    <releaseNotes>https://github.com/your-org/obsctl/releases/tag/v{{VERSION}}</releaseNotes>
+    <dependencies>
+      <dependency id="chocolatey-core.extension" version="1.3.3" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+    <file src="legal\**" target="legal" />
+  </files>
+</package>
