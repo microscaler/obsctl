@@ -84,8 +84,8 @@ mod tests {
         // Should not panic, might succeed or fail depending on environment
         #[allow(clippy::single_match)]
         match result {
-            Ok(_) => {},
-            Err(_) => {}, // Acceptable if logging already initialized
+            Ok(_) => {}
+            Err(_) => {} // Acceptable if logging already initialized
         }
     }
 
@@ -99,8 +99,8 @@ mod tests {
             // Should handle case insensitivity without panicking
             #[allow(clippy::single_match)]
             match result {
-                Ok(_) => {},
-                Err(_) => {}, // Acceptable if logging already initialized
+                Ok(_) => {}
+                Err(_) => {} // Acceptable if logging already initialized
             }
         }
     }
@@ -127,10 +127,7 @@ mod tests {
                 _ => LevelFilter::Info,
             };
 
-            assert_eq!(
-                actual, expected,
-                "Level mapping failed for input: {input}"
-            );
+            assert_eq!(actual, expected, "Level mapping failed for input: {input}");
         }
     }
 
@@ -141,8 +138,8 @@ mod tests {
         // Should default to info level and not panic
         #[allow(clippy::single_match)]
         match result {
-            Ok(_) => {},
-            Err(_) => {}, // Acceptable if logging already initialized
+            Ok(_) => {}
+            Err(_) => {} // Acceptable if logging already initialized
         }
     }
 
@@ -153,8 +150,8 @@ mod tests {
         // Should handle whitespace (though our current implementation doesn't trim)
         #[allow(clippy::single_match)]
         match result {
-            Ok(_) => {},
-            Err(_) => {}, // Acceptable if logging already initialized
+            Ok(_) => {}
+            Err(_) => {} // Acceptable if logging already initialized
         }
     }
 

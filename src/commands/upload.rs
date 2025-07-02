@@ -320,10 +320,7 @@ mod tests {
         ];
 
         for uri in invalid_uris {
-            assert!(
-                !is_s3_uri(uri),
-                "URI should not be recognized as S3: {uri}"
-            );
+            assert!(!is_s3_uri(uri), "URI should not be recognized as S3: {uri}");
         }
     }
 

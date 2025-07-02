@@ -161,9 +161,7 @@ fn parse_aws_config_file(
             if current_section.starts_with("profile ") {
                 current_section = current_section[8..].to_string();
             }
-            config
-                .entry(current_section.clone())
-                .or_default();
+            config.entry(current_section.clone()).or_default();
             continue;
         }
 
@@ -615,25 +613,28 @@ key_with_empty_value =
     fn test_configure_otel_disabled_by_default() {
         // Test with completely empty configuration - no AWS config and no environment variables
         let aws_config = HashMap::new();
-        
+
         // Temporarily clear any environment variables that could affect the test
         let _env_guard = [
             ("OTEL_ENABLED", std::env::var("OTEL_ENABLED").ok()),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()),
+            (
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok(),
+            ),
             ("OTEL_SERVICE_NAME", std::env::var("OTEL_SERVICE_NAME").ok()),
             ("HOME", Some("/tmp/nonexistent".to_string())), // Use fake home to avoid real ~/.aws/otel file
         ];
-        
+
         // Clear environment variables for clean test
         std::env::remove_var("OTEL_ENABLED");
         std::env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT");
         std::env::remove_var("OTEL_SERVICE_NAME");
         std::env::set_var("HOME", "/tmp/nonexistent"); // Fake home directory
-        
+
         let otel_config = configure_otel(&aws_config).unwrap();
         assert!(!otel_config.enabled);
         assert!(otel_config.endpoint.is_none());
-        
+
         // Restore environment variables
         for (key, value) in _env_guard {
             match value {
@@ -655,11 +656,13 @@ key_with_empty_value =
         // Test with real environment (when OTEL file exists)
         let aws_config = HashMap::new();
         let otel_config = configure_otel(&aws_config).unwrap();
-        
+
         // This will pass if ~/.aws/otel exists with enabled=true
         // or fail if it doesn't exist (which is the expected default behavior)
-        println!("🔍 OTEL config result: enabled={}, endpoint={:?}", 
-                 otel_config.enabled, otel_config.endpoint);
+        println!(
+            "🔍 OTEL config result: enabled={}, endpoint={:?}",
+            otel_config.enabled, otel_config.endpoint
+        );
     }
 
     #[test]

@@ -292,10 +292,7 @@ pub mod fd_monitor {
                             let fd_path = entry.path();
                             match fs::read_link(&fd_path) {
                                 Ok(target) => {
-                                    details.push(format!(
-                                        "fd {fd_str}: {}",
-                                        target.display()
-                                    ));
+                                    details.push(format!("fd {fd_str}: {}", target.display()));
                                 }
                                 Err(_) => {
                                     details.push(format!("fd {fd_str}: <unknown>"));
@@ -368,10 +365,7 @@ pub mod fd_monitor {
                             let fd_path = entry.path();
                             match fs::read_link(&fd_path) {
                                 Ok(target) => {
-                                    details.push(format!(
-                                        "fd {fd_str}: {}",
-                                        target.display()
-                                    ));
+                                    details.push(format!("fd {fd_str}: {}", target.display()));
                                 }
                                 Err(_) => {
                                     details.push(format!("fd {fd_str}: <unknown>"));

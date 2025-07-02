@@ -21,7 +21,7 @@ Traditional S3 tools don't provide:
 
 ---
 
-<img src="docs/images/dashboard.png" alt="obsctl dashboard" width="800px" />
+<img src="docs/images/dashboard.png" alt="obsctl dashboard" width="800px" align="centre s" />
 
 ---
 
@@ -684,6 +684,50 @@ Test coverage includes:
 
 - [Operator Manual](docs/MANUAL.md) - Production deployment guide
 - [GitLab CI Integration](docs/GITLAB_CI.md) - CI/CD pipeline setup
+
+---
+
+## Roadmap
+
+### Why “obsctl mount” Matters
+
+#### …and why **our** take on FUSE is different
+
+1. **Zero-friction data access**
+   *Developers can `cd /mnt/obs` and use ordinary CLI tools, scripts, or desktop apps without ever touching S3 semantics.*
+   No more rewriting pipelines from `cp` to `aws s3`—everything “just looks like a folder.”
+
+2. **Legacy compatibility**
+   • Older software that **can’t** speak S3 (e.g., Oracle datapump, image viewers, Photoshop) suddenly works with Cloud.ru buckets.
+   • On-prem ↔ cloud migrations become lift-and-shift: point the path at `/mnt/obs` and you’re done.
+
+3. **Online editing & instant feedback**
+   Mounts enable IDEs, **VS Code remote workspaces**, or container bind-mounts to treat cloud objects as live files.
+   Paired with multipart write-through, “save” is seconds—not minutes.
+
+---
+
+### Our Unique Selling Point (USP)
+
+| Existing FUSE drivers                        | **obsctl mount**                                                             |
+| -------------------------------------------- | ---------------------------------------------------------------------------- |
+| Expose a bucket ✔️                           | Expose a bucket ✔️                                                           |
+| Basic metrics (if any)                       | **OpenTelemetry by default** — latency histograms, bytes, IOPS, error codes. |
+| Separate config steps                        | **One-liner**: credentials, endpoint, cache flags injected automatically.    |
+| Hard to debug (“it’s slow… why?”)            | **Span-level traces** show which op, object, and HTTP call caused the stall. |
+| Ops learn a new binary (`rclone`, `s3fs`, …) | Same familiar `obsctl` family.                                               |
+| No systemd health                            | Built-in **sd\_notify**, watchdog, & auto-remount timer.                     |
+
+#### What “rich OTel” gives you
+
+* **Dashboards in minutes** – drop our pre-made Grafana JSON: see read/write throughput, 99p latency, cache hit ratio.
+* **Alertable KPIs** – error counters already tagged (`bucket`, `op`, `driver`).
+* **Cloud-agnostic** – the same trace schema for AWS S3, Cloud.ru OBS, MinIO, or Ceph.
+* **Cost insights** – bytes transferred per prefix, surfacing the real egress bill in Prometheus.
+
+> **Bottom-line:**
+> *obsctl* doesn’t try to reinvent FUSE; it **wraps** the best driver for the job and turns it into an **observable, self-healing mount** with zero manual plumbing.
+
 
 ---
 

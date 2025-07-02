@@ -285,13 +285,11 @@ pub fn apply_filters(
         // For tail operations, ensure we have proper sorting by modified date
         if config.sort_config.fields.is_empty() {
             // Auto-sort by modified date for tail operations
-            filtered.sort_by(|a, b| {
-                match (a.modified, b.modified) {
-                    (Some(a_mod), Some(b_mod)) => a_mod.cmp(&b_mod),
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    (None, Some(_)) => std::cmp::Ordering::Less,
-                    (None, None) => std::cmp::Ordering::Equal,
-                }
+            filtered.sort_by(|a, b| match (a.modified, b.modified) {
+                (Some(a_mod), Some(b_mod)) => a_mod.cmp(&b_mod),
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (None, None) => std::cmp::Ordering::Equal,
             });
         }
         let start = filtered.len().saturating_sub(tail);
@@ -375,7 +373,8 @@ where
     // Performance optimization flags
     let has_head = config.head.is_some();
     let head_limit = config.head.unwrap_or(usize::MAX);
-    let can_early_terminate = has_head && config.sort_config.fields.is_empty() && config.max_results.is_none();
+    let can_early_terminate =
+        has_head && config.sort_config.fields.is_empty() && config.max_results.is_none();
 
     for obj in objects {
         if passes_filters(&obj, config) {
@@ -416,13 +415,11 @@ where
     } else if let Some(tail) = config.tail {
         // For tail operations, ensure proper sorting
         if config.sort_config.fields.is_empty() {
-            filtered.sort_by(|a, b| {
-                match (a.modified, b.modified) {
-                    (Some(a_mod), Some(b_mod)) => a_mod.cmp(&b_mod),
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    (None, Some(_)) => std::cmp::Ordering::Less,
-                    (None, None) => std::cmp::Ordering::Equal,
-                }
+            filtered.sort_by(|a, b| match (a.modified, b.modified) {
+                (Some(a_mod), Some(b_mod)) => a_mod.cmp(&b_mod),
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (None, None) => std::cmp::Ordering::Equal,
             });
         }
         let start = filtered.len().saturating_sub(tail);

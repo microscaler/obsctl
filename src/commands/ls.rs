@@ -300,9 +300,7 @@ async fn list_all_buckets(
         if long || summarize {
             println!();
             if let Some(pattern_str) = pattern {
-                println!(
-                    "Total: {total_buckets} buckets matching pattern '{pattern_str}'"
-                );
+                println!("Total: {total_buckets} buckets matching pattern '{pattern_str}'");
                 if total_buckets != all_bucket_names.len() {
                     println!(
                         "({} buckets total, {} filtered out)",
@@ -535,7 +533,7 @@ fn build_filter_config(
 fn convert_to_enhanced_object_info(object: &Object, _bucket_name: &str) -> EnhancedObjectInfo {
     let key = object.key().unwrap_or("").to_string();
     let size = object.size().unwrap_or(0);
-    
+
     // Extract dates from S3 object metadata
     let created = object.last_modified().map(|dt| {
         DateTime::<Utc>::from_timestamp(dt.secs(), dt.subsec_nanos()).unwrap_or_else(Utc::now)
@@ -543,7 +541,7 @@ fn convert_to_enhanced_object_info(object: &Object, _bucket_name: &str) -> Enhan
     let modified = object.last_modified().map(|dt| {
         DateTime::<Utc>::from_timestamp(dt.secs(), dt.subsec_nanos()).unwrap_or_else(Utc::now)
     });
-    
+
     // Extract additional metadata
     let storage_class = object.storage_class().map(|sc| sc.as_str().to_string());
     let etag = object.e_tag().map(|tag| tag.to_string());

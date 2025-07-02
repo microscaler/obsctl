@@ -70,9 +70,8 @@ pub async fn execute(
             {
                 use crate::otel::OTEL_INSTRUMENTS;
 
-                let error_msg = format!(
-                    "Failed to generate presigned URL for {s3_uri} ({method}): {e}"
-                );
+                let error_msg =
+                    format!("Failed to generate presigned URL for {s3_uri} ({method}): {e}");
                 OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
             }
 

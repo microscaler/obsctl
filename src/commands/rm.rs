@@ -1,5 +1,7 @@
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use log::info;
+use md5;
 use std::time::Instant;
 
 use crate::commands::s3_uri::{is_s3_uri, S3Uri};
@@ -210,17 +212,64 @@ async fn delete_objects_recursive(
                 // Perform batch deletion if we have objects to delete
                 if !objects_to_delete.is_empty() {
                     let delete_request = aws_sdk_s3::types::Delete::builder()
-                        .set_objects(Some(objects_to_delete))
+                        .set_objects(Some(objects_to_delete.clone()))
                         .build()
                         .map_err(|e| anyhow::anyhow!("Failed to build delete request: {}", e))?;
 
-                    config
+                    // For MinIO compatibility, compute and add Content-MD5 header
+                    // MinIO requires this header for batch deletion operations
+                    let result = config
                         .client
                         .delete_objects()
                         .bucket(&s3_uri.bucket)
-                        .delete(delete_request)
+                        .delete(delete_request.clone())
+                        .customize()
+                        .mutate_request(|req| {
+                            // For MinIO compatibility, we need to add Content-MD5 header
+                            // Get the request body bytes if available
+                            let payload_xml = if let Some(body_bytes) = req.body().bytes() {
+                                body_bytes.to_vec()
+                            } else {
+                                // Fallback: compute MD5 of empty body
+                                Vec::new()
+                            };
+
+                            // Compute MD5 hash of the payload and base64 encode it
+                            let md5_hash = md5::compute(&payload_xml);
+                            let md5_b64 = b64.encode(md5_hash.as_ref());
+
+                            // Add the Content-MD5 header
+                            req.headers_mut().insert("Content-MD5", md5_b64);
+                        })
                         .send()
-                        .await?;
+                        .await;
+
+                    match result {
+                        Ok(_) => {
+                            // Batch deletion succeeded with Content-MD5 header
+                        },
+                        Err(e) if e.to_string().contains("MissingContentMD5") => {
+                            info!("Batch deletion failed with MissingContentMD5, falling back to individual deletions");
+                            // Fall back to individual object deletion when batch fails
+                            for obj in &objects_to_delete {
+                                let key = obj.key();
+                                if !key.is_empty() {
+                                    config
+                                        .client
+                                        .delete_object()
+                                        .bucket(&s3_uri.bucket)
+                                        .key(key)
+                                        .send()
+                                        .await?;
+
+                                    println!("delete: s3://{}/{}", s3_uri.bucket, key);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            return Err(e.into());
+                        }
+                    }
                 }
             }
 
@@ -356,9 +405,7 @@ async fn delete_bucket(config: &Config, bucket_name: &str, force_empty: bool) ->
 }
 
 async fn delete_all_versions(config: &Config, bucket_name: &str) -> Result<()> {
-    info!(
-        "Deleting all versions and delete markers in bucket: {bucket_name}"
-    );
+    info!("Deleting all versions and delete markers in bucket: {bucket_name}");
 
     let mut key_marker: Option<String> = None;
     let mut version_id_marker: Option<String> = None;
@@ -419,11 +466,31 @@ async fn delete_all_versions(config: &Config, bucket_name: &str) -> Result<()> {
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to build delete request: {}", e))?;
 
+            // For MinIO compatibility, compute and add Content-MD5 header
+            // MinIO requires this header for batch deletion operations
             config
                 .client
                 .delete_objects()
                 .bucket(bucket_name)
-                .delete(delete_request)
+                .delete(delete_request.clone())
+                .customize()
+                .mutate_request(|req| {
+                    // For MinIO compatibility, we need to add Content-MD5 header
+                    // Get the request body bytes if available
+                    let payload_xml = if let Some(body_bytes) = req.body().bytes() {
+                        body_bytes.to_vec()
+                    } else {
+                        // Fallback: compute MD5 of empty body
+                        Vec::new()
+                    };
+
+                    // Compute MD5 hash of the payload and base64 encode it
+                    let md5_hash = md5::compute(&payload_xml);
+                    let md5_b64 = b64.encode(md5_hash.as_ref());
+
+                    // Add the Content-MD5 header
+                    req.headers_mut().insert("Content-MD5", md5_b64);
+                })
                 .send()
                 .await?;
         }
@@ -451,9 +518,7 @@ async fn call_transparent_du(config: &Config, s3_uri: &str) {
         if let Ok(uri) = crate::commands::s3_uri::S3Uri::parse(s3_uri) {
             let bucket_uri = format!("s3://{}", uri.bucket);
 
-            debug!(
-                "Running transparent du for bucket analytics after deletion: {bucket_uri}"
-            );
+            debug!("Running transparent du for bucket analytics after deletion: {bucket_uri}");
 
             // Run du in background for bucket analytics - errors are logged but don't fail the main operation
             if let Err(e) = du::execute_transparent(config, &bucket_uri, false, true, Some(1)).await

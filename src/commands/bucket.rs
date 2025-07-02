@@ -1,5 +1,7 @@
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use log::info;
+use md5;
 use std::time::Instant;
 
 use crate::config::Config;
@@ -167,11 +169,31 @@ async fn delete_all_objects(config: &Config, bucket_name: &str) -> Result<()> {
                         .build()
                         .map_err(|e| anyhow::anyhow!("Failed to build delete request: {}", e))?;
 
+                    // For MinIO compatibility, compute and add Content-MD5 header
+                    // MinIO requires this header for batch deletion operations
                     config
                         .client
                         .delete_objects()
                         .bucket(bucket_name)
-                        .delete(delete_request)
+                        .delete(delete_request.clone())
+                        .customize()
+                        .mutate_request(|req| {
+                            // For MinIO compatibility, we need to add Content-MD5 header
+                            // Get the request body bytes if available
+                            let payload_xml = if let Some(body_bytes) = req.body().bytes() {
+                                body_bytes.to_vec()
+                            } else {
+                                // Fallback: compute MD5 of empty body
+                                Vec::new()
+                            };
+
+                            // Compute MD5 hash of the payload and base64 encode it
+                            let md5_hash = md5::compute(&payload_xml);
+                            let md5_b64 = b64.encode(md5_hash.as_ref());
+
+                            // Add the Content-MD5 header
+                            req.headers_mut().insert("Content-MD5", md5_b64);
+                        })
                         .send()
                         .await?;
                 }
@@ -228,9 +250,7 @@ async fn delete_all_objects(config: &Config, bucket_name: &str) -> Result<()> {
 }
 
 async fn delete_all_versions(config: &Config, bucket_name: &str) -> Result<()> {
-    info!(
-        "Deleting all versions and delete markers in bucket: {bucket_name}"
-    );
+    info!("Deleting all versions and delete markers in bucket: {bucket_name}");
 
     let mut key_marker: Option<String> = None;
     let mut version_id_marker: Option<String> = None;
@@ -291,11 +311,31 @@ async fn delete_all_versions(config: &Config, bucket_name: &str) -> Result<()> {
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to build delete request: {}", e))?;
 
+            // For MinIO compatibility, compute and add Content-MD5 header
+            // MinIO requires this header for batch deletion operations
             config
                 .client
                 .delete_objects()
                 .bucket(bucket_name)
-                .delete(delete_request)
+                .delete(delete_request.clone())
+                .customize()
+                .mutate_request(|req| {
+                    // For MinIO compatibility, we need to add Content-MD5 header
+                    // Get the request body bytes if available
+                    let payload_xml = if let Some(body_bytes) = req.body().bytes() {
+                        body_bytes.to_vec()
+                    } else {
+                        // Fallback: compute MD5 of empty body
+                        Vec::new()
+                    };
+
+                    // Compute MD5 hash of the payload and base64 encode it
+                    let md5_hash = md5::compute(&payload_xml);
+                    let md5_b64 = b64.encode(md5_hash.as_ref());
+
+                    // Add the Content-MD5 header
+                    req.headers_mut().insert("Content-MD5", md5_b64);
+                })
                 .send()
                 .await?;
         }

@@ -1076,7 +1076,7 @@ mod tests {
 
         let result = init_tracing(&config, "debug");
         assert!(result.is_ok());
-        
+
         // Clean up
         drop(_guard);
         drop(rt);
@@ -1099,9 +1099,9 @@ mod tests {
 
         let result = init_tracing(&config, "debug");
         assert!(result.is_ok());
-        
+
         println!("✅ OTEL tracing initialized successfully with real collector");
-        
+
         // Clean up
         drop(_guard);
         drop(rt);

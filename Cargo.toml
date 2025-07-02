@@ -41,6 +41,7 @@ tracing-opentelemetry = "0.31"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 base64 = "0.21"
+md5 = "0.7"
 walkdir = "2.3"
 thiserror = "1.0"
 

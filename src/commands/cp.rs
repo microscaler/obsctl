@@ -482,10 +482,14 @@ async fn download_directory_from_s3(
         OTEL_INSTRUMENTS.downloads_total.add(total_files, &[]);
 
         // Record bulk bytes downloaded
-        OTEL_INSTRUMENTS.bytes_downloaded_total.add(total_bytes, &[]);
+        OTEL_INSTRUMENTS
+            .bytes_downloaded_total
+            .add(total_bytes, &[]);
 
         // Record bulk files downloaded
-        OTEL_INSTRUMENTS.files_downloaded_total.add(total_files, &[]);
+        OTEL_INSTRUMENTS
+            .files_downloaded_total
+            .add(total_files, &[]);
 
         // Record duration in seconds (not milliseconds)
         let duration_seconds = duration.as_millis() as f64 / 1000.0;
@@ -518,9 +522,7 @@ async fn call_transparent_du(config: &Config, s3_uri: &str) {
         if let Ok(uri) = crate::commands::s3_uri::S3Uri::parse(s3_uri) {
             let bucket_uri = format!("s3://{}", uri.bucket);
 
-            debug!(
-                "Running transparent du for bucket analytics: {bucket_uri}"
-            );
+            debug!("Running transparent du for bucket analytics: {bucket_uri}");
 
             // Run du in background for bucket analytics - errors are logged but don't fail the main operation
             if let Err(e) = du::execute_transparent(config, &bucket_uri, false, true, Some(1)).await

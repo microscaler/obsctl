@@ -178,10 +178,7 @@ mod tests {
 
         for args in test_cases {
             let result = Args::try_parse_from(args.clone());
-            assert!(
-                result.is_ok(),
-                "Failed to parse head-object args: {args:?}"
-            );
+            assert!(result.is_ok(), "Failed to parse head-object args: {args:?}");
         }
     }
 

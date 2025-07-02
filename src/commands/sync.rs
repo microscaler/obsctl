@@ -234,9 +234,7 @@ async fn sync_local_to_s3(
         }
     }
 
-    info!(
-        "Sync completed: {upload_count} uploads, {delete_count} deletes"
-    );
+    info!("Sync completed: {upload_count} uploads, {delete_count} deletes");
 
     // Transparent du call for real-time bucket analytics
     if !dryrun && upload_count > 0 {
@@ -393,9 +391,7 @@ async fn sync_s3_to_local(
         }
     }
 
-    info!(
-        "Sync completed: {download_count} downloads, {delete_count} deletes"
-    );
+    info!("Sync completed: {download_count} downloads, {delete_count} deletes");
 
     // Transparent du call for real-time bucket analytics
     if !dryrun && download_count > 0 {
@@ -525,9 +521,7 @@ async fn call_transparent_du(config: &Config, s3_uri: &str) {
         if let Ok(uri) = crate::commands::s3_uri::S3Uri::parse(s3_uri) {
             let bucket_uri = format!("s3://{}", uri.bucket);
 
-            debug!(
-                "Running transparent du for bucket analytics after sync: {bucket_uri}"
-            );
+            debug!("Running transparent du for bucket analytics after sync: {bucket_uri}");
 
             // Run du in background for bucket analytics - errors are logged but don't fail the main operation
             if let Err(e) = du::execute_transparent(config, &bucket_uri, false, true, Some(1)).await
