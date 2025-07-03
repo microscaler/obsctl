@@ -28,25 +28,33 @@ jobs:
         run: |
           pip install commitizen
 
-      - name: Validate commit messages (Push)
-        if: github.event_name == 'push'
+      - name: Validate commit messages
+        if: github.event_name != 'pull_request'
         run: |
-          echo "🔍 Validating commit messages for push event..."
+          echo "🔍 Validating commit messages..."
+          echo "Event: ${{ github.event_name }}"
+          echo "SHA: ${{ github.sha }}"
 
-          # Get the range of commits to check
-          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            # New branch, check only the latest commit
+          # For workflow_call and simple validation, just check the HEAD commit
+          if [ "${{ github.event_name }}" = "workflow_call" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Validating HEAD commit for workflow_call/dispatch event"
+            COMMITS="${{ github.sha }}"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] || [ -z "${{ github.event.before }}" ]; then
+            # New branch or missing before SHA, check only the latest commit
+            echo "New branch or missing before SHA, checking HEAD commit only"
             COMMITS="${{ github.sha }}"
           else
             # Existing branch, check commits since last push
+            echo "Existing branch, checking commits since last push"
             COMMITS="${{ github.event.before }}..${{ github.sha }}"
           fi
 
-          echo "Checking commits in range: $COMMITS"
+          echo "Checking commits: $COMMITS"
 
           # Validate each commit in the range
           for commit in $(git rev-list $COMMITS); do
-            echo "Validating commit: $commit"
+            echo ""
+            echo "🔍 Validating commit: $commit"
             git log --format="%H %s" -n 1 $commit
 
             # Get commit message
@@ -83,14 +91,20 @@ jobs:
         run: |
           echo "🔍 Validating commit messages for pull request..."
 
-          # Get all commits in the PR
-          COMMITS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-
-          echo "Checking commits in PR range: $COMMITS"
+          # Get all commits in the PR - with fallback if PR context is missing
+          if [ -n "${{ github.event.pull_request.base.sha }}" ] && [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            COMMITS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+            echo "Checking commits in PR range: $COMMITS"
+          else
+            # Fallback to HEAD commit if PR context is missing
+            echo "⚠️  PR context missing, checking HEAD commit only"
+            COMMITS="${{ github.sha }}"
+          fi
 
           # Validate each commit in the PR
           for commit in $(git rev-list $COMMITS); do
-            echo "Validating commit: $commit"
+            echo ""
+            echo "🔍 Validating commit: $commit"
             git log --format="%H %s" -n 1 $commit
 
             # Get commit message
