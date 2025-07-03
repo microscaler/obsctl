@@ -2,9 +2,9 @@ name: Main CI/CD Controller
 
 on:
   push:
-    branches: [ main, master, develop, issue-007-multi-platform-cross-compilation ]
+    branches: [ master, 'issue-[0-9]{1,3}-*' ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ master ]
   workflow_dispatch:
     inputs:
       force_release:
