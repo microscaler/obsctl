@@ -1,18 +1,15 @@
 name: "CodeQL Security Analysis"
 
 on:
-  push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
+  workflow_call:
   schedule:
     # Run CodeQL analysis every Monday at 6 AM UTC
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
-# Concurrency is handled by the parent workflow when called via workflow_call
+# Smart concurrency control - only for manual dispatch
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.workflow, github.ref) || '' }}
+  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-scheduled', github.workflow) }}
   cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 permissions:

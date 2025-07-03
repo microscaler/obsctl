@@ -245,13 +245,21 @@ jobs:
     if: needs.controller.outputs.should_run_ci == 'true' && (github.event.inputs.skip_tests != 'true')
     uses: ./.github/workflows/ci.yml
 
+  # Security Analysis Pipeline (runs in parallel with CI)
+  security:
+    name: Security Analysis
+    needs: [controller, conventional-commits]
+    if: needs.controller.outputs.should_run_ci == 'true'
+    uses: ./.github/workflows/codeql.yml
+
   # Release Pipeline (only on PR merges to main/master or manual dispatch)
   release:
     name: Release Pipeline
-    needs: [controller, conventional-commits, ci]
+    needs: [controller, conventional-commits, ci, security]
     if: |
       needs.controller.outputs.should_run_release == 'true' &&
-      (needs.ci.result == 'success' || needs.ci.result == 'skipped')
+      (needs.ci.result == 'success' || needs.ci.result == 'skipped') &&
+      (needs.security.result == 'success' || needs.security.result == 'skipped')
     uses: ./.github/workflows/release-please.yml
     secrets: inherit
 
@@ -259,7 +267,7 @@ jobs:
   status:
     name: Status Report
     runs-on: ubuntu-latest
-    needs: [controller, conventional-commits, ci, release]
+    needs: [controller, conventional-commits, ci, security, release]
     if: always()
     steps:
     - name: Report Status
@@ -275,6 +283,7 @@ jobs:
         echo "  Controller: ${{ needs.controller.result }}"
         echo "  Conventional Commits: ${{ needs.conventional-commits.result }}"
         echo "  CI: ${{ needs.ci.result }}"
+        echo "  Security: ${{ needs.security.result }}"
         echo "  Release: ${{ needs.release.result }}"
         echo ""
 
@@ -287,6 +296,9 @@ jobs:
           exit 1
         elif [ "${{ needs.ci.result }}" = "failure" ]; then
           echo "❌ FAILED: CI pipeline failed"
+          exit 1
+        elif [ "${{ needs.security.result }}" = "failure" ]; then
+          echo "❌ FAILED: Security analysis failed"
           exit 1
         elif [ "${{ needs.release.result }}" = "failure" ]; then
           echo "❌ FAILED: Release pipeline failed"
@@ -338,4 +350,51 @@ jobs:
             title: title,
             body: body,
             labels: ['bug', 'release', 'ci/cd', 'high-priority']
+          });
+
+  # Notification for security failures
+  notify-security-failure:
+    name: Notify Security Failure
+    runs-on: ubuntu-latest
+    needs: [controller, security]
+    if: |
+      always() &&
+      needs.security.result == 'failure'
+    steps:
+    - name: Create Issue for Security Failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const title = `🔒 Security Analysis Failed - ${context.sha.substring(0, 7)}`;
+          const body = `
+          ## Security Analysis Failure
+
+          **Branch:** \`${{ needs.controller.outputs.branch_name }}\`
+          **Commit:** \`${{ github.sha }}\`
+          **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          The security analysis pipeline failed during execution. This requires immediate attention as it may indicate security vulnerabilities or configuration issues.
+
+          ### Next Steps
+          1. Review the failed CodeQL and security audit logs
+          2. Address any security vulnerabilities identified
+          3. Fix configuration issues if present
+          4. Re-run the workflow or push a fix
+
+          ### Security Components
+          - CodeQL Analysis (Rust, Python, JavaScript)
+          - Security Audit (cargo-audit, cargo-deny)
+          - Supply Chain Security
+          - SBOM Generation
+
+          ---
+          *This issue was automatically created by the CI/CD pipeline*
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            labels: ['security', 'bug', 'ci/cd', 'high-priority']
           });
