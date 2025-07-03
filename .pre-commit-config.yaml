@@ -31,16 +31,38 @@ repos:
     hooks:
       - id: cargo-fmt
         name: Cargo Format Check
-        entry: cargo fmt
-        args: ["--all", "--check"]
+        entry: cargo fmt --all -- --check
         language: system
         types: [rust]
         pass_filenames: false
 
+      # AUTO-FIX CLIPPY ISSUES THEN STRICT CHECK - ZERO WARNINGS ALLOWED
+      - id: cargo-clippy-auto-fix-strict
+        name: Cargo Clippy Auto-Fix + Strict Check
+        entry: |
+          bash -c '
+          echo "🔧 Auto-fixing clippy issues...";
+          ./scripts/fix-clippy.sh;
+          echo "✅ Auto-fixes applied";
+          echo "🔍 Checking for remaining unfixable issues...";
+          output=$(cargo clippy --all-targets --all-features -- -D warnings 2>&1);
+          if [ $? -ne 0 ]; then
+            echo "$output";
+            echo "❌ COMMIT BLOCKED: Unfixable clippy warnings/errors detected!";
+            echo "🛠️  Manual fixes required for remaining issues! The regression is likely due to a new clippy lint. Please keep the codebase hygenic!";
+            exit 1;
+          else
+            echo "✅ All clippy issues resolved!";
+          fi
+          '
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Regular compilation check
       - id: cargo-check
         name: Cargo Check Compilation
-        entry: cargo check
-        args: ["--all-targets", "--all-features"]
+        entry: cargo check --all-targets --all-features
         language: system
         types: [rust]
         pass_filenames: false

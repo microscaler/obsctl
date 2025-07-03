@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::info;
+use opentelemetry::trace::{Span, Tracer};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
@@ -23,26 +24,56 @@ pub async fn execute(
     size_only: bool,
     exact_timestamps: bool,
 ) -> Result<()> {
+    // Create a span for the sync operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("sync_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "sync"),
+            opentelemetry::KeyValue::new("source", source.to_string()),
+            opentelemetry::KeyValue::new("dest", dest.to_string()),
+            opentelemetry::KeyValue::new("dryrun", dryrun),
+            opentelemetry::KeyValue::new("delete", delete),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("sync_operation_started", vec![]);
+
+    let start_time = Instant::now();
     info!("Syncing from {source} to {dest}");
+
+    // Record operation start using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
+
+        OTEL_INSTRUMENTS
+            .operations_total
+            .add(1, &[KeyValue::new("operation", "sync")]);
+    }
 
     if dryrun {
         info!("[DRY RUN] Would sync from {source} to {dest}");
+        span.add_event("sync_dryrun_completed", vec![]);
+        span.end();
+        return Ok(());
     }
 
     let source_is_s3 = is_s3_uri(source);
     let dest_is_s3 = is_s3_uri(dest);
 
-    match (source_is_s3, dest_is_s3) {
+    let result = match (source_is_s3, dest_is_s3) {
         (false, true) => {
             // Local to S3 sync
+            span.set_attribute(opentelemetry::KeyValue::new("sync_type", "local_to_s3"));
             sync_local_to_s3(
                 config,
                 source,
                 dest,
-                dryrun,
                 delete,
-                exclude,
                 include,
+                exclude,
                 size_only,
                 exact_timestamps,
             )
@@ -50,14 +81,14 @@ pub async fn execute(
         }
         (true, false) => {
             // S3 to local sync
+            span.set_attribute(opentelemetry::KeyValue::new("sync_type", "s3_to_local"));
             sync_s3_to_local(
                 config,
                 source,
                 dest,
-                dryrun,
                 delete,
-                exclude,
                 include,
+                exclude,
                 size_only,
                 exact_timestamps,
             )
@@ -65,26 +96,68 @@ pub async fn execute(
         }
         (true, true) => {
             // S3 to S3 sync
+            span.set_attribute(opentelemetry::KeyValue::new("sync_type", "s3_to_s3"));
             sync_s3_to_s3(
                 config,
                 source,
                 dest,
-                dryrun,
                 delete,
-                exclude,
                 include,
+                exclude,
                 size_only,
                 exact_timestamps,
             )
             .await
         }
         (false, false) => {
-            // Local to local sync (not typically handled by S3 tools)
+            // Local to local sync
+            span.set_attribute(opentelemetry::KeyValue::new("sync_type", "local_to_local"));
             Err(anyhow::anyhow!(
-                "Local to local sync not supported. Use rsync or similar tools."
+                "Local to local sync not supported. Use standard rsync command."
             ))
         }
+    };
+
+    let duration = start_time.elapsed();
+
+    // Record overall sync operation metrics using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
+
+        // Record duration
+        let duration_seconds = duration.as_millis() as f64 / 1000.0;
+        OTEL_INSTRUMENTS
+            .operation_duration
+            .record(duration_seconds, &[KeyValue::new("operation", "sync")]);
+
+        // Record success/failure
+        match &result {
+            Ok(_) => {
+                log::debug!("Sync operation completed successfully in {duration:?}");
+                span.add_event(
+                    "sync_operation_completed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "success"),
+                        opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                    ],
+                );
+            }
+            Err(e) => {
+                OTEL_INSTRUMENTS.record_error_with_type(&e.to_string());
+                span.add_event(
+                    "sync_operation_failed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "error"),
+                        opentelemetry::KeyValue::new("error", e.to_string()),
+                    ],
+                );
+            }
+        }
     }
+
+    span.end();
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -92,10 +165,9 @@ async fn sync_local_to_s3(
     config: &Config,
     source: &str,
     dest: &str,
-    dryrun: bool,
     delete: bool,
-    _exclude: Option<&str>,
     _include: Option<&str>,
+    _exclude: Option<&str>,
     size_only: bool,
     _exact_timestamps: bool,
 ) -> Result<()> {
@@ -144,23 +216,19 @@ async fn sync_local_to_s3(
             let local_path = format!("{}/{}", source.trim_end_matches('/'), relative_path);
             let s3_dest = format!("s3://{}/{}", dest_uri.bucket, s3_key);
 
-            if dryrun {
-                println!("(dryrun) upload: {local_path} to {s3_dest}");
-            } else {
-                println!("upload: {local_path} to {s3_dest}");
-                cp::execute(
-                    config,
-                    &local_path,
-                    &s3_dest,
-                    false,
-                    false,
-                    1,
-                    false,
-                    None,
-                    None,
-                )
-                .await?;
-            }
+            println!("upload: {local_path} to {s3_dest}");
+            cp::execute(
+                config,
+                &local_path,
+                &s3_dest,
+                false,
+                false,
+                1,
+                false,
+                None,
+                None,
+            )
+            .await?;
             upload_count += 1;
             total_upload_bytes += local_file.size as u64;
         }
@@ -185,18 +253,14 @@ async fn sync_local_to_s3(
             if !local_files.contains_key(&local_relative_path) {
                 let s3_path = format!("s3://{}/{}", dest_uri.bucket, s3_key);
 
-                if dryrun {
-                    println!("(dryrun) delete: {s3_path}");
-                } else {
-                    println!("delete: {s3_path}");
-                    config
-                        .client
-                        .delete_object()
-                        .bucket(&dest_uri.bucket)
-                        .key(s3_key)
-                        .send()
-                        .await?;
-                }
+                println!("delete: {s3_path}");
+                config
+                    .client
+                    .delete_object()
+                    .bucket(&dest_uri.bucket)
+                    .key(s3_key)
+                    .send()
+                    .await?;
                 delete_count += 1;
             }
         }
@@ -205,39 +269,37 @@ async fn sync_local_to_s3(
     let duration = start_time.elapsed();
 
     // Record comprehensive sync metrics using proper OTEL SDK
-    if !dryrun {
-        {
-            use crate::otel::OTEL_INSTRUMENTS;
-            use opentelemetry::KeyValue;
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
 
-            // Record operation count
-            OTEL_INSTRUMENTS
-                .operations_total
-                .add(1, &[KeyValue::new("operation", "sync_local_to_s3")]);
+        // Record operation count
+        OTEL_INSTRUMENTS
+            .operations_total
+            .add(1, &[KeyValue::new("operation", "sync_local_to_s3")]);
 
-            // Record sync operation count
-            OTEL_INSTRUMENTS.sync_operations_total.add(1, &[]);
+        // Record sync operation count
+        OTEL_INSTRUMENTS.sync_operations_total.add(1, &[]);
 
-            // Record uploads and bytes
-            OTEL_INSTRUMENTS.uploads_total.add(upload_count, &[]);
-            OTEL_INSTRUMENTS.files_uploaded_total.add(upload_count, &[]);
-            OTEL_INSTRUMENTS
-                .bytes_uploaded_total
-                .add(total_upload_bytes, &[]);
+        // Record uploads and bytes
+        OTEL_INSTRUMENTS.uploads_total.add(upload_count, &[]);
+        OTEL_INSTRUMENTS.files_uploaded_total.add(upload_count, &[]);
+        OTEL_INSTRUMENTS
+            .bytes_uploaded_total
+            .add(total_upload_bytes, &[]);
 
-            // Record duration in seconds (not milliseconds)
-            let duration_seconds = duration.as_millis() as f64 / 1000.0;
-            OTEL_INSTRUMENTS.operation_duration.record(
-                duration_seconds,
-                &[KeyValue::new("operation", "sync_local_to_s3")],
-            );
-        }
+        // Record duration in seconds (not milliseconds)
+        let duration_seconds = duration.as_millis() as f64 / 1000.0;
+        OTEL_INSTRUMENTS.operation_duration.record(
+            duration_seconds,
+            &[KeyValue::new("operation", "sync_local_to_s3")],
+        );
     }
 
     info!("Sync completed: {upload_count} uploads, {delete_count} deletes");
 
     // Transparent du call for real-time bucket analytics
-    if !dryrun && upload_count > 0 {
+    if upload_count > 0 {
         let bucket_uri = format!("s3://{}", dest_uri.bucket);
         call_transparent_du(config, &bucket_uri).await;
     }
@@ -250,10 +312,9 @@ async fn sync_s3_to_local(
     config: &Config,
     source: &str,
     dest: &str,
-    dryrun: bool,
     delete: bool,
-    _exclude: Option<&str>,
     _include: Option<&str>,
+    _exclude: Option<&str>,
     size_only: bool,
     _exact_timestamps: bool,
 ) -> Result<()> {
@@ -308,23 +369,19 @@ async fn sync_s3_to_local(
             let s3_source = format!("s3://{}/{}", source_uri.bucket, s3_key);
             let local_dest = format!("{}/{}", dest.trim_end_matches('/'), local_relative_path);
 
-            if dryrun {
-                println!("(dryrun) download: {s3_source} to {local_dest}");
-            } else {
-                println!("download: {s3_source} to {local_dest}");
-                cp::execute(
-                    config,
-                    &s3_source,
-                    &local_dest,
-                    false,
-                    false,
-                    1,
-                    false,
-                    None,
-                    None,
-                )
-                .await?;
-            }
+            println!("download: {s3_source} to {local_dest}");
+            cp::execute(
+                config,
+                &s3_source,
+                &local_dest,
+                false,
+                false,
+                1,
+                false,
+                None,
+                None,
+            )
+            .await?;
             download_count += 1;
             total_download_bytes += s3_object.size as u64;
         }
@@ -346,12 +403,8 @@ async fn sync_s3_to_local(
             if !s3_objects.contains_key(&s3_key) {
                 let local_path = format!("{dest}/{local_relative_path}");
 
-                if dryrun {
-                    println!("(dryrun) delete: {local_path}");
-                } else {
-                    println!("delete: {local_path}");
-                    fs::remove_file(&local_path).await?;
-                }
+                println!("delete: {local_path}");
+                fs::remove_file(&local_path).await?;
                 delete_count += 1;
             }
         }
@@ -360,41 +413,39 @@ async fn sync_s3_to_local(
     let duration = start_time.elapsed();
 
     // Record comprehensive sync metrics using proper OTEL SDK
-    if !dryrun {
-        {
-            use crate::otel::OTEL_INSTRUMENTS;
-            use opentelemetry::KeyValue;
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
 
-            // Record operation count
-            OTEL_INSTRUMENTS
-                .operations_total
-                .add(1, &[KeyValue::new("operation", "sync_s3_to_local")]);
+        // Record operation count
+        OTEL_INSTRUMENTS
+            .operations_total
+            .add(1, &[KeyValue::new("operation", "sync_s3_to_local")]);
 
-            // Record sync operation count
-            OTEL_INSTRUMENTS.sync_operations_total.add(1, &[]);
+        // Record sync operation count
+        OTEL_INSTRUMENTS.sync_operations_total.add(1, &[]);
 
-            // Record downloads and bytes
-            OTEL_INSTRUMENTS.downloads_total.add(download_count, &[]);
-            OTEL_INSTRUMENTS
-                .files_downloaded_total
-                .add(download_count, &[]);
-            OTEL_INSTRUMENTS
-                .bytes_downloaded_total
-                .add(total_download_bytes, &[]);
+        // Record downloads and bytes
+        OTEL_INSTRUMENTS.downloads_total.add(download_count, &[]);
+        OTEL_INSTRUMENTS
+            .files_downloaded_total
+            .add(download_count, &[]);
+        OTEL_INSTRUMENTS
+            .bytes_downloaded_total
+            .add(total_download_bytes, &[]);
 
-            // Record duration in seconds (not milliseconds)
-            let duration_seconds = duration.as_millis() as f64 / 1000.0;
-            OTEL_INSTRUMENTS.operation_duration.record(
-                duration_seconds,
-                &[KeyValue::new("operation", "sync_s3_to_local")],
-            );
-        }
+        // Record duration in seconds (not milliseconds)
+        let duration_seconds = duration.as_millis() as f64 / 1000.0;
+        OTEL_INSTRUMENTS.operation_duration.record(
+            duration_seconds,
+            &[KeyValue::new("operation", "sync_s3_to_local")],
+        );
     }
 
     info!("Sync completed: {download_count} downloads, {delete_count} deletes");
 
     // Transparent du call for real-time bucket analytics
-    if !dryrun && download_count > 0 {
+    if download_count > 0 {
         let bucket_uri = format!("s3://{}", source_uri.bucket);
         call_transparent_du(config, &bucket_uri).await;
     }
@@ -407,10 +458,9 @@ async fn sync_s3_to_s3(
     _config: &Config,
     _source: &str,
     _dest: &str,
-    _dryrun: bool,
     _delete: bool,
-    _exclude: Option<&str>,
     _include: Option<&str>,
+    _exclude: Option<&str>,
     _size_only: bool,
     _exact_timestamps: bool,
 ) -> Result<()> {

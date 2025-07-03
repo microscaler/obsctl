@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::info;
+use opentelemetry::trace::{Span, Tracer};
 use std::time::Instant;
 
 use crate::commands::cp;
@@ -15,6 +16,21 @@ pub async fn execute(
     include: Option<&str>,
     exclude: Option<&str>,
 ) -> Result<()> {
+    // Create a span for the get operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("get_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "get"),
+            opentelemetry::KeyValue::new("s3_uri", s3_uri.to_string()),
+            opentelemetry::KeyValue::new("recursive", recursive),
+            opentelemetry::KeyValue::new("force", force),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("get_operation_started", vec![]);
+
     let start_time = Instant::now();
 
     if !is_s3_uri(s3_uri) {
@@ -47,6 +63,16 @@ pub async fn execute(
 
     info!("Getting {s3_uri} to {dest}");
 
+    // Record operation start using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
+
+        OTEL_INSTRUMENTS
+            .operations_total
+            .add(1, &[KeyValue::new("operation", "get")]);
+    }
+
     // Use the cp command to perform the actual download
     let result = cp::execute(
         config, s3_uri, &dest, recursive, false, // dryrun = false
@@ -55,46 +81,46 @@ pub async fn execute(
     )
     .await;
 
-    match result {
-        Ok(_) => {
-            let duration = start_time.elapsed();
+    let duration = start_time.elapsed();
 
-            // Record get operation using proper OTEL SDK
-            {
-                use crate::otel::OTEL_INSTRUMENTS;
-                use opentelemetry::KeyValue;
+    // Record overall get operation metrics using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
 
-                let operation_type = if recursive {
-                    "get_recursive"
-                } else {
-                    "get_single"
-                };
+        // Record duration
+        let duration_seconds = duration.as_millis() as f64 / 1000.0;
+        OTEL_INSTRUMENTS
+            .operation_duration
+            .record(duration_seconds, &[KeyValue::new("operation", "get")]);
 
-                OTEL_INSTRUMENTS
-                    .operations_total
-                    .add(1, &[KeyValue::new("operation", operation_type)]);
-
-                let duration_seconds = duration.as_millis() as f64 / 1000.0;
-                OTEL_INSTRUMENTS.operation_duration.record(
-                    duration_seconds,
-                    &[KeyValue::new("operation", operation_type)],
+        // Record success/failure
+        match &result {
+            Ok(_) => {
+                log::debug!("Get operation completed successfully in {duration:?}");
+                span.add_event(
+                    "get_operation_completed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "success"),
+                        opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                    ],
                 );
             }
-
-            Ok(())
-        }
-        Err(e) => {
-            // Record error using proper OTEL SDK
-            {
-                use crate::otel::OTEL_INSTRUMENTS;
-
-                let error_msg = format!("Failed to get {s3_uri} to {dest}: {e}");
-                OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
+            Err(e) => {
+                OTEL_INSTRUMENTS.record_error_with_type(&e.to_string());
+                span.add_event(
+                    "get_operation_failed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "error"),
+                        opentelemetry::KeyValue::new("error", e.to_string()),
+                    ],
+                );
             }
-
-            Err(e)
         }
     }
+
+    span.end();
+    result
 }
 
 #[cfg(test)]

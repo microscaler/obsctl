@@ -2,12 +2,27 @@ use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use log::info;
 use md5;
+use opentelemetry::trace::{Span, Tracer};
 use std::time::Instant;
 
 use crate::config::Config;
 use crate::utils::filter_by_enhanced_pattern;
 
 pub async fn create_bucket(config: &Config, bucket_name: &str, region: Option<&str>) -> Result<()> {
+    // Create a span for the create_bucket operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("create_bucket_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "create_bucket"),
+            opentelemetry::KeyValue::new("bucket_name", bucket_name.to_string()),
+            opentelemetry::KeyValue::new("region", region.unwrap_or("us-east-1").to_string()),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("create_bucket_operation_started", vec![]);
+
     let start_time = Instant::now();
     info!("Creating bucket: {bucket_name}");
 
@@ -46,7 +61,17 @@ pub async fn create_bucket(config: &Config, bucket_name: &str, region: Option<&s
                 );
             }
 
+            // Record success in span
+            span.add_event(
+                "create_bucket_operation_completed",
+                vec![
+                    opentelemetry::KeyValue::new("status", "success"),
+                    opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                ],
+            );
+
             println!("make_bucket: s3://{bucket_name}");
+            span.end();
             Ok(())
         }
         Err(e) => {
@@ -59,12 +84,36 @@ pub async fn create_bucket(config: &Config, bucket_name: &str, region: Option<&s
                 OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
             }
 
+            // Record error in span
+            span.add_event(
+                "create_bucket_operation_failed",
+                vec![
+                    opentelemetry::KeyValue::new("status", "error"),
+                    opentelemetry::KeyValue::new("error", e.to_string()),
+                ],
+            );
+
+            span.end();
             Err(anyhow::anyhow!(error_msg))
         }
     }
 }
 
 pub async fn delete_bucket(config: &Config, bucket_name: &str, force: bool) -> Result<()> {
+    // Create a span for the delete_bucket operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("delete_bucket_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "delete_bucket"),
+            opentelemetry::KeyValue::new("bucket_name", bucket_name.to_string()),
+            opentelemetry::KeyValue::new("force", force),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("delete_bucket_operation_started", vec![]);
+
     let start_time = Instant::now();
     info!("Deleting bucket: {bucket_name}");
 
@@ -110,6 +159,7 @@ pub async fn delete_bucket(config: &Config, bucket_name: &str, force: bool) -> R
             }
 
             println!("remove_bucket: s3://{bucket_name}");
+            span.end();
             Ok(())
         }
         Err(e) => {
@@ -122,6 +172,16 @@ pub async fn delete_bucket(config: &Config, bucket_name: &str, force: bool) -> R
                 OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
             }
 
+            // Record error in span
+            span.add_event(
+                "delete_bucket_operation_failed",
+                vec![
+                    opentelemetry::KeyValue::new("status", "error"),
+                    opentelemetry::KeyValue::new("error", e.to_string()),
+                ],
+            );
+
+            span.end();
             Err(anyhow::anyhow!(error_msg))
         }
     }
