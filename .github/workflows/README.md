@@ -6,7 +6,7 @@ This directory contains the comprehensive CI/CD pipeline for obsctl, designed ar
 
 ```mermaid
 graph TD
-    A[main.yml - Controller] --> B[conventional-commits.yml]
+    A[main.yml - Controller] --> B[Conventional Commits - Embedded]
     A --> C[ci.yml]
     A --> D[release-please.yml]
     B --> C
@@ -15,6 +15,9 @@ graph TD
     
     A --> F[Status Report]
     A --> G[Failure Notifications]
+    
+    style B fill:#e1f5fe
+    style A fill:#f3e5f5
 ```
 
 ## 📋 Workflow Files
@@ -28,20 +31,21 @@ graph TD
 
 **Key Features**:
 - **Intelligent Routing**: Determines which workflows to run based on branch and event
-- **Release Control**: Only runs releases on main/master pushes or manual dispatch
+- **Release Control**: Only runs releases on PR merges to main/master or manual dispatch
 - **Emergency Options**: Skip tests for emergency releases
 - **Status Reporting**: Comprehensive pipeline status with failure notifications
 - **Issue Creation**: Automatically creates issues for failed releases
+- **Embedded Validation**: Includes conventional commits validation directly (no separate workflow)
 
-### 🔍 conventional-commits.yml - Commit Validation
+### 🔍 Conventional Commits Validation - Embedded Job
 **Purpose**: Validates conventional commit format and standards
-**Triggers**: Called by main.yml controller
-**Dependencies**: None (runs first)
+**Location**: Embedded within main.yml workflow
+**Dependencies**: None (runs first after controller)
 
 ### 🧪 ci.yml - Continuous Integration
 **Purpose**: Comprehensive testing, linting, and quality assurance
 **Triggers**: Called by main.yml controller
-**Dependencies**: conventional-commits.yml must pass
+**Dependencies**: Conventional commits validation must pass
 
 **Features**:
 - Pre-commit hooks validation
@@ -52,8 +56,8 @@ graph TD
 
 ### 🚀 release-please.yml - Release Pipeline
 **Purpose**: Complete release automation with multi-platform builds
-**Triggers**: Called by main.yml controller (main/master only)
-**Dependencies**: conventional-commits.yml + ci.yml must pass
+**Triggers**: Called by main.yml controller (PR merges to main/master only)
+**Dependencies**: Conventional commits validation + ci.yml must pass
 
 **Features**:
 - Release-please automation
@@ -66,22 +70,27 @@ graph TD
 
 ### Pull Request Flow
 ```
-PR Created/Updated → main.yml → conventional-commits.yml → ci.yml → Status Report
+PR Created/Updated → main.yml → [Conventional Commits] → ci.yml → Status Report
 ```
 
 ### Development Branch Flow
 ```
-Push to develop → main.yml → conventional-commits.yml → ci.yml → Status Report
+Push to develop → main.yml → [Conventional Commits] → ci.yml → Status Report
 ```
 
-### Release Flow (main/master)
+### Release Flow (PR Merge to main/master)
 ```
-Push to main → main.yml → conventional-commits.yml → ci.yml → release-please.yml → Status Report
+PR Merge to main → main.yml → [Conventional Commits] → ci.yml → release-please.yml → Status Report
+```
+
+### Direct Push Flow (main/master)
+```
+Direct Push to main → main.yml → [Conventional Commits] → ci.yml → Status Report (Release Skipped)
 ```
 
 ### Manual Release Flow
 ```
-Manual Dispatch → main.yml → conventional-commits.yml → ci.yml → release-please.yml → Status Report
+Manual Dispatch → main.yml → [Conventional Commits] → ci.yml → release-please.yml → Status Report
 ```
 
 ## 🎛️ Control Logic
@@ -92,8 +101,9 @@ Manual Dispatch → main.yml → conventional-commits.yml → ci.yml → release
 - ✅ Manual dispatch (unless skip_tests=true)
 
 ### When Release Runs
-- ✅ Push to main/master branch (after CI passes)
+- ✅ PR merge to main/master branch (after CI passes)
 - ✅ Manual dispatch with force_release=true
+- ❌ Direct pushes to main/master
 - ❌ Pull requests
 - ❌ Development branches
 - ❌ CI failures
@@ -159,8 +169,8 @@ gh workflow run main.yml -f skip_tests=true -f force_release=true
 
 ### Individual Workflow Testing
 ```bash
-# Test individual workflows
-gh workflow run conventional-commits.yml
+# Test individual workflows (conventional commits now embedded in main.yml)
+gh workflow run main.yml  # Includes conventional commits validation
 gh workflow run ci.yml
 gh workflow run release-please.yml
 ```
@@ -169,22 +179,31 @@ gh workflow run release-please.yml
 
 ### Single Source of Truth
 - All CI/CD logic centralized in main.yml
+- Conventional commits validation embedded (no separate workflow)
 - No duplicate workflow definitions
 - Consistent execution patterns
 
 ### Intelligent Execution
 - Conditional logic prevents unnecessary runs
-- Resource optimization
+- PR-only release control prevents accidental releases
+- Resource optimization through smart concurrency
 - Clear execution paths
+
+### No Concurrency Conflicts
+- Embedded validation eliminates workflow deadlocks
+- Single workflow controls all execution
+- No competing concurrency groups
 
 ### Comprehensive Reporting
 - Full pipeline visibility
 - Automatic failure notifications
 - Status tracking
+- Clear release skip messaging
 
 ### Emergency Capabilities
 - Manual override options
 - Skip mechanisms for urgent fixes
+- Force release for emergency situations
 - Flexible execution control
 
 ## 🛠️ Maintenance

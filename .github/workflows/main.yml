@@ -109,12 +109,122 @@ jobs:
           echo "ℹ️  Release skipped: Direct push to main/master (not a PR merge)"
         fi
 
-  # Conventional Commits Validation
+  # Conventional Commits Validation (embedded)
   conventional-commits:
-    name: Conventional Commits
+    name: Conventional Commits Validation
+    runs-on: ubuntu-latest
     needs: controller
     if: needs.controller.outputs.should_run_ci == 'true'
-    uses: ./.github/workflows/conventional-commits.yml
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install commitizen
+        run: pip install commitizen
+
+      - name: Validate commit messages
+        run: |
+          echo "🔍 Validating commit messages..."
+          echo "Event: ${{ github.event_name }}"
+          echo "SHA: ${{ github.sha }}"
+
+          # For workflow_call and simple validation, just check the HEAD commit
+          if [ "${{ github.event_name }}" = "workflow_call" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Validating HEAD commit for workflow_call/dispatch event"
+            COMMITS="${{ github.sha }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PR events, validate all commits in the PR
+            if [ -n "${{ github.event.pull_request.base.sha }}" ] && [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+              COMMITS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+              echo "Checking commits in PR range: $COMMITS"
+            else
+              echo "⚠️  PR context missing, checking HEAD commit only"
+              COMMITS="${{ github.sha }}"
+            fi
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] || [ -z "${{ github.event.before }}" ]; then
+            # New branch or missing before SHA, check only the latest commit
+            echo "New branch or missing before SHA, checking HEAD commit only"
+            COMMITS="${{ github.sha }}"
+          else
+            # Existing branch, check commits since last push
+            echo "Existing branch, checking commits since last push"
+            COMMITS="${{ github.event.before }}..${{ github.sha }}"
+          fi
+
+          echo "Checking commits: $COMMITS"
+
+          # Validate each commit in the range
+          for commit in $(git rev-list $COMMITS); do
+            echo ""
+            echo "🔍 Validating commit: $commit"
+            git log --format="%H %s" -n 1 $commit
+
+            # Get commit message
+            commit_msg=$(git log --format="%s" -n 1 $commit)
+
+            # Skip merge commits (they have different format requirements)
+            if echo "$commit_msg" | grep -qE '^Merge (pull request|branch)'; then
+              echo "⏭️  SKIPPED: Merge commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip GitHub PR merge commits (e.g., "Advanced filtering (#4)")
+            if echo "$commit_msg" | grep -qE '.+ \(#[0-9]+\)$'; then
+              echo "⏭️  SKIPPED: GitHub PR merge commit detected, skipping validation"
+              continue
+            fi
+
+            # Check if commit message follows conventional format
+            if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
+              echo "❌ FAILED: Commit $commit does not follow conventional commit format"
+              echo "   Message: $commit_msg"
+              echo ""
+              echo "📋 Conventional commit format: <type>[optional scope]: <description>"
+              echo "   Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
+              echo "   Example: feat(cli): add new dashboard command"
+              exit 1
+            else
+              echo "✅ PASSED: Commit $commit follows conventional format"
+            fi
+          done
+
+      - name: Validate PR title (Pull Request only)
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "🔍 Validating pull request title..."
+
+          pr_title="${{ github.event.pull_request.title }}"
+          echo "PR Title: $pr_title"
+
+          # More flexible PR title validation - allow descriptive titles
+          if echo "$pr_title" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
+            echo "✅ PASSED: PR title follows conventional format"
+          elif echo "$pr_title" | grep -qE '^[🚀🔧🎯📊🔍🛠️💡⚡🎨📈]'; then
+            echo "✅ PASSED: PR title uses emoji prefix (acceptable for major features)"
+          else
+            echo "⚠️  WARNING: PR title doesn't follow conventional format, but this is acceptable for PRs"
+            echo "   Title: $pr_title"
+            echo ""
+            echo "💡 Recommended format: <type>[optional scope]: <description>"
+            echo "   Example: feat(cli): add new dashboard command"
+          fi
+
+      - name: Success message
+        run: |
+          echo "🎉 Commit message validation completed!"
+          echo ""
+          echo "📋 Conventional Commit Format:"
+          echo "   <type>[optional scope]: <description>"
+          echo ""
+          echo "🏷️  Available types:"
+          echo "   feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
 
   # Main CI Pipeline
   ci:
