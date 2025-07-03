@@ -181,6 +181,18 @@ jobs:
               continue
             fi
 
+            # Skip Dependabot commits (they follow a different format)
+            if echo "$commit_msg" | grep -qE '^(Bump|Update|build\(deps\):)'; then
+              echo "⏭️  SKIPPED: Dependabot commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip Dependabot commits with deps prefix
+            if echo "$commit_msg" | grep -qE '^deps(\([^)]+\))?: '; then
+              echo "⏭️  SKIPPED: Dependabot deps commit detected, skipping validation"
+              continue
+            fi
+
             # Check if commit message follows conventional format
             if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
               echo "❌ FAILED: Commit $commit does not follow conventional commit format"

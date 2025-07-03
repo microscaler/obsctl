@@ -1,0 +1,118 @@
+version: 2
+updates:
+  # Rust dependencies (Cargo.toml)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "00:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "microscaler/obsctl-maintainers"
+    assignees:
+      - "microscaler/obsctl-maintainers"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "security"
+    # Group related updates
+    groups:
+      aws-sdk:
+        patterns:
+          - "aws-*"
+      serde:
+        patterns:
+          - "serde*"
+      tokio:
+        patterns:
+          - "tokio*"
+      opentelemetry:
+        patterns:
+          - "opentelemetry*"
+      clap:
+        patterns:
+          - "clap*"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "00:15"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "microscaler/obsctl-maintainers"
+    assignees:
+      - "microscaler/obsctl-maintainers"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci/cd"
+
+  # Python dependencies (for scripts and tools)
+  - package-ecosystem: "pip"
+    directory: "/scripts"
+    schedule:
+      interval: "daily"
+      time: "00:30"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "microscaler/obsctl-maintainers"
+    assignees:
+      - "microscaler/obsctl-maintainers"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "python"
+      - "scripts"
+
+  # Docker dependencies (if any Dockerfiles exist)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "00:45"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "microscaler/obsctl-maintainers"
+    assignees:
+      - "microscaler/obsctl-maintainers"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # Packaging dependencies (for various package managers)
+  - package-ecosystem: "bundler"
+    directory: "/packaging/homebrew"
+    schedule:
+      interval: "monthly"
+      day: "first-monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
+    reviewers:
+      - "microscaler/obsctl-maintainers"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "packaging"
+      - "homebrew"

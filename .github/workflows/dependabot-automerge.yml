@@ -1,0 +1,168 @@
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  dependabot-automerge:
+    name: Auto-merge Dependabot PRs
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v1
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Check PR conditions
+        id: check-conditions
+        run: |
+          echo "PR Author: ${{ github.actor }}"
+          echo "Update Type: ${{ steps.metadata.outputs.update-type }}"
+          echo "Package Ecosystem: ${{ steps.metadata.outputs.package-ecosystem }}"
+          echo "Dependency Names: ${{ steps.metadata.outputs.dependency-names }}"
+
+          # Define auto-merge conditions
+          AUTO_MERGE=false
+
+          # Auto-merge patch updates for all ecosystems
+          if [ "${{ steps.metadata.outputs.update-type }}" = "version-update:semver-patch" ]; then
+            AUTO_MERGE=true
+            echo "✅ Patch update - eligible for auto-merge"
+          fi
+
+          # Auto-merge minor updates for GitHub Actions
+          if [ "${{ steps.metadata.outputs.package-ecosystem }}" = "github_actions" ] && [ "${{ steps.metadata.outputs.update-type }}" = "version-update:semver-minor" ]; then
+            AUTO_MERGE=true
+            echo "✅ GitHub Actions minor update - eligible for auto-merge"
+          fi
+
+          # Auto-merge minor updates for development dependencies
+          if [[ "${{ steps.metadata.outputs.dependency-type }}" == *"development"* ]] && [ "${{ steps.metadata.outputs.update-type }}" = "version-update:semver-minor" ]; then
+            AUTO_MERGE=true
+            echo "✅ Development dependency minor update - eligible for auto-merge"
+          fi
+
+          # Never auto-merge major updates
+          if [ "${{ steps.metadata.outputs.update-type }}" = "version-update:semver-major" ]; then
+            AUTO_MERGE=false
+            echo "❌ Major update - requires manual review"
+          fi
+
+          echo "auto_merge=$AUTO_MERGE" >> $GITHUB_OUTPUT
+          echo "Final decision: AUTO_MERGE=$AUTO_MERGE"
+
+      - name: Enable auto-merge for Dependabot PRs
+        if: steps.check-conditions.outputs.auto_merge == 'true'
+        run: |
+          echo "🤖 Enabling auto-merge for Dependabot PR #${{ github.event.pull_request.number }}"
+          gh pr merge --auto --squash "${{ github.event.pull_request.number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add auto-merge label
+        if: steps.check-conditions.outputs.auto_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['auto-merge', 'dependabot']
+            });
+
+      - name: Add manual review label
+        if: steps.check-conditions.outputs.auto_merge == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['manual-review', 'dependabot']
+            });
+
+      - name: Comment on PR
+        if: steps.check-conditions.outputs.auto_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🤖 **Auto-merge enabled** for this Dependabot PR
+
+              This PR will be automatically merged when all required checks pass:
+              - ✅ Conventional commits validation
+              - ✅ CI pipeline (tests, linting, security)
+              - ✅ All status checks
+
+              **Update details:**
+              - **Type**: ${{ steps.metadata.outputs.update-type }}
+              - **Ecosystem**: ${{ steps.metadata.outputs.package-ecosystem }}
+              - **Dependencies**: ${{ steps.metadata.outputs.dependency-names }}
+
+              If you need to make changes or want to prevent auto-merge, disable it with:
+              \`\`\`
+              gh pr merge --disable-auto ${{ github.event.pull_request.number }}
+              \`\`\`
+              `
+            });
+
+      - name: Comment on manual review PR
+        if: steps.check-conditions.outputs.auto_merge == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🔍 **Manual review required** for this Dependabot PR
+
+              This PR requires manual review because:
+              - Update type: ${{ steps.metadata.outputs.update-type }}
+              - Ecosystem: ${{ steps.metadata.outputs.package-ecosystem }}
+
+              **Auto-merge criteria:**
+              - ✅ Patch updates (all ecosystems)
+              - ✅ Minor updates (GitHub Actions only)
+              - ✅ Minor updates (development dependencies)
+              - ❌ Major updates (always require review)
+
+              Please review the changes and merge manually if appropriate.
+              `
+            });
+
+  # Monitor auto-merge status
+  monitor-automerge:
+    name: Monitor Auto-merge Status
+    runs-on: ubuntu-latest
+    needs: dependabot-automerge
+    if: github.actor == 'dependabot[bot]' && needs.dependabot-automerge.outputs.auto_merge == 'true'
+
+    steps:
+      - name: Wait for checks and auto-merge
+        run: |
+          echo "🔄 Monitoring auto-merge status for PR #${{ github.event.pull_request.number }}"
+          echo "Auto-merge is enabled. The PR will merge automatically when all checks pass."
+          echo ""
+          echo "Required checks:"
+          echo "- Conventional commits validation"
+          echo "- CI pipeline (all jobs)"
+          echo "- Security scans"
+          echo "- Any additional status checks"
+          echo ""
+          echo "You can monitor the progress in the PR status checks section."
