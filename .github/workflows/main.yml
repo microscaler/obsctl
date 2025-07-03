@@ -1,0 +1,201 @@
+name: Main CI/CD Controller
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force release workflow execution'
+        required: false
+        default: false
+        type: boolean
+      skip_tests:
+        description: 'Skip test execution (emergency releases only)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  checks: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Workflow Controller - Determines what needs to run
+  controller:
+    name: Workflow Controller
+    runs-on: ubuntu-latest
+    outputs:
+      should_run_ci: ${{ steps.determine.outputs.should_run_ci }}
+      should_run_release: ${{ steps.determine.outputs.should_run_release }}
+      is_main_branch: ${{ steps.determine.outputs.is_main_branch }}
+      is_pr: ${{ steps.determine.outputs.is_pr }}
+      branch_name: ${{ steps.determine.outputs.branch_name }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Determine workflow execution
+      id: determine
+      run: |
+        echo "Event: ${{ github.event_name }}"
+        echo "Ref: ${{ github.ref }}"
+        echo "Base ref: ${{ github.base_ref }}"
+
+        # Determine branch context
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          IS_PR=true
+          BRANCH_NAME="${{ github.head_ref }}"
+          IS_MAIN_BRANCH=false
+        else
+          IS_PR=false
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [ "$BRANCH_NAME" = "main" ] || [ "$BRANCH_NAME" = "master" ]; then
+            IS_MAIN_BRANCH=true
+          else
+            IS_MAIN_BRANCH=false
+          fi
+        fi
+
+        # CI should run on all pushes and PRs
+        SHOULD_RUN_CI=true
+
+        # Release should only run on main/master branch pushes or manual dispatch
+        if [ "$IS_MAIN_BRANCH" = "true" ] && [ "${{ github.event_name }}" = "push" ]; then
+          SHOULD_RUN_RELEASE=true
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_release }}" = "true" ]; then
+          SHOULD_RUN_RELEASE=true
+        else
+          SHOULD_RUN_RELEASE=false
+        fi
+
+        echo "should_run_ci=$SHOULD_RUN_CI" >> $GITHUB_OUTPUT
+        echo "should_run_release=$SHOULD_RUN_RELEASE" >> $GITHUB_OUTPUT
+        echo "is_main_branch=$IS_MAIN_BRANCH" >> $GITHUB_OUTPUT
+        echo "is_pr=$IS_PR" >> $GITHUB_OUTPUT
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+        echo "📊 Workflow Execution Plan:"
+        echo "  Branch: $BRANCH_NAME"
+        echo "  Is PR: $IS_PR"
+        echo "  Is Main Branch: $IS_MAIN_BRANCH"
+        echo "  Run CI: $SHOULD_RUN_CI"
+        echo "  Run Release: $SHOULD_RUN_RELEASE"
+
+  # Conventional Commits Validation
+  conventional-commits:
+    name: Conventional Commits
+    needs: controller
+    if: needs.controller.outputs.should_run_ci == 'true'
+    uses: ./.github/workflows/conventional-commits.yml
+
+  # Main CI Pipeline
+  ci:
+    name: Continuous Integration
+    needs: [controller, conventional-commits]
+    if: needs.controller.outputs.should_run_ci == 'true' && (github.event.inputs.skip_tests != 'true')
+    uses: ./.github/workflows/ci.yml
+
+  # Release Pipeline (only on main/master or manual dispatch)
+  release:
+    name: Release Pipeline
+    needs: [controller, conventional-commits, ci]
+    if: |
+      needs.controller.outputs.should_run_release == 'true' &&
+      (needs.ci.result == 'success' || needs.ci.result == 'skipped')
+    uses: ./.github/workflows/release-please.yml
+    secrets: inherit
+
+  # Status Reporter
+  status:
+    name: Status Report
+    runs-on: ubuntu-latest
+    needs: [controller, conventional-commits, ci, release]
+    if: always()
+    steps:
+    - name: Report Status
+      run: |
+        echo "🎯 CI/CD Pipeline Status Report"
+        echo "================================"
+        echo "Branch: ${{ needs.controller.outputs.branch_name }}"
+        echo "Event: ${{ github.event_name }}"
+        echo "Is PR: ${{ needs.controller.outputs.is_pr }}"
+        echo "Is Main Branch: ${{ needs.controller.outputs.is_main_branch }}"
+        echo ""
+        echo "📋 Job Results:"
+        echo "  Controller: ${{ needs.controller.result }}"
+        echo "  Conventional Commits: ${{ needs.conventional-commits.result }}"
+        echo "  CI: ${{ needs.ci.result }}"
+        echo "  Release: ${{ needs.release.result }}"
+        echo ""
+
+        # Determine overall status
+        if [ "${{ needs.controller.result }}" = "failure" ]; then
+          echo "❌ FAILED: Controller failed"
+          exit 1
+        elif [ "${{ needs.conventional-commits.result }}" = "failure" ]; then
+          echo "❌ FAILED: Conventional commits validation failed"
+          exit 1
+        elif [ "${{ needs.ci.result }}" = "failure" ]; then
+          echo "❌ FAILED: CI pipeline failed"
+          exit 1
+        elif [ "${{ needs.release.result }}" = "failure" ]; then
+          echo "❌ FAILED: Release pipeline failed"
+          exit 1
+        else
+          echo "✅ SUCCESS: All required workflows completed successfully"
+        fi
+
+  # Notification for failed releases (only on main branch)
+  notify-release-failure:
+    name: Notify Release Failure
+    runs-on: ubuntu-latest
+    needs: [controller, release]
+    if: |
+      always() &&
+      needs.controller.outputs.is_main_branch == 'true' &&
+      needs.release.result == 'failure'
+    steps:
+    - name: Create Issue for Release Failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const title = `🚨 Release Pipeline Failed - ${context.sha.substring(0, 7)}`;
+          const body = `
+          ## Release Pipeline Failure
+
+          **Branch:** \`${{ needs.controller.outputs.branch_name }}\`
+          **Commit:** \`${{ github.sha }}\`
+          **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          The release pipeline failed during execution. This requires immediate attention as it may block future releases.
+
+          ### Next Steps
+          1. Review the failed workflow logs
+          2. Fix any issues identified
+          3. Re-run the workflow or push a fix
+
+          ### Workflow Results
+          - Controller: ${{ needs.controller.result }}
+          - Release: ${{ needs.release.result }}
+
+          ---
+          *This issue was automatically created by the CI/CD pipeline*
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            labels: ['bug', 'release', 'ci/cd', 'high-priority']
+          });
