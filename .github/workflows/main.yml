@@ -73,9 +73,18 @@ jobs:
         # CI should run on all pushes and PRs
         SHOULD_RUN_CI=true
 
-        # Release should only run on main/master branch pushes or manual dispatch
+        # Release should only run on PR merges to main/master or manual dispatch
         if [ "$IS_MAIN_BRANCH" = "true" ] && [ "${{ github.event_name }}" = "push" ]; then
-          SHOULD_RUN_RELEASE=true
+          # Check if this is a merge commit (PR merge)
+          COMMIT_MESSAGE=$(git log --format=%s -n 1 ${{ github.sha }})
+          if echo "$COMMIT_MESSAGE" | grep -qE '^Merge pull request #[0-9]+' || echo "$COMMIT_MESSAGE" | grep -qE '.+ \(#[0-9]+\)$'; then
+            echo "🔄 Detected PR merge commit: $COMMIT_MESSAGE"
+            SHOULD_RUN_RELEASE=true
+          else
+            echo "⏭️  Direct push to main/master detected, skipping release"
+            echo "   Commit: $COMMIT_MESSAGE"
+            SHOULD_RUN_RELEASE=false
+          fi
         elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_release }}" = "true" ]; then
           SHOULD_RUN_RELEASE=true
         else
@@ -95,6 +104,11 @@ jobs:
         echo "  Run CI: $SHOULD_RUN_CI"
         echo "  Run Release: $SHOULD_RUN_RELEASE"
 
+        if [ "$IS_MAIN_BRANCH" = "true" ] && [ "${{ github.event_name }}" = "push" ] && [ "$SHOULD_RUN_RELEASE" = "false" ]; then
+          echo ""
+          echo "ℹ️  Release skipped: Direct push to main/master (not a PR merge)"
+        fi
+
   # Conventional Commits Validation
   conventional-commits:
     name: Conventional Commits
@@ -109,7 +123,7 @@ jobs:
     if: needs.controller.outputs.should_run_ci == 'true' && (github.event.inputs.skip_tests != 'true')
     uses: ./.github/workflows/ci.yml
 
-  # Release Pipeline (only on main/master or manual dispatch)
+  # Release Pipeline (only on PR merges to main/master or manual dispatch)
   release:
     name: Release Pipeline
     needs: [controller, conventional-commits, ci]
