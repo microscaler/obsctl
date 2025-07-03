@@ -5,9 +5,6 @@ on:
   workflow_dispatch:
 
 # Concurrency is handled by the parent workflow when called via workflow_call
-concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.workflow, github.ref) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 env:
   CARGO_TERM_COLOR: always

@@ -11,10 +11,7 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
-# Smart concurrency control - only for manual dispatch
-concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-scheduled', github.workflow) }}
-  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+# Concurrency is handled by the parent workflow when called via workflow_call
 
 permissions:
   actions: read
