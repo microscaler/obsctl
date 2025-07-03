@@ -1,5 +1,9 @@
 name: "CodeQL Security Analysis"
 
+# IMPORTANT: Code Security must be enabled in repository settings for this workflow to function
+# Go to: Settings → Security & Analysis → Code security and analysis → Enable "Code scanning"
+# This workflow provides comprehensive security analysis for Rust and Python code
+
 on:
   workflow_call:
   schedule:
@@ -26,8 +30,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'rust', 'python', 'javascript' ]
+        language: [ 'rust', 'python' ]
         # CodeQL supports: 'cpp', 'csharp', 'go', 'java', 'javascript', 'python', 'ruby', 'rust'
+        # Note: JavaScript removed as obsctl project contains only Rust and Python code
 
     steps:
     - name: Checkout repository
@@ -95,11 +100,7 @@ jobs:
           pip install -r scripts/requirements.txt
         fi
 
-    - name: Set up Node.js (for JavaScript analysis)
-      if: matrix.language == 'javascript'
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
+
 
     # Autobuild attempts to build any compiled languages (Rust).
     # If this step fails, then you should remove it and run the build manually
@@ -116,16 +117,10 @@ jobs:
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
-        upload: true
-        # Optional: Specify a SARIF file to upload
-        # sarif-file: results.sarif
+        # Results are automatically uploaded to GitHub Security tab
 
-    - name: Upload CodeQL results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: ${{ runner.temp }}/results/rust.sarif
-        category: "/language:${{matrix.language}}"
+    # Note: CodeQL analysis automatically uploads results to GitHub Security tab
+    # Additional SARIF upload is not needed as it's handled by the analyze action
 
   # Additional security checks
   security-audit:
@@ -229,8 +224,10 @@ jobs:
 
     - name: Generate SBOM
       run: |
-        cargo cyclonedx --format json --output sbom.json
-        cargo cyclonedx --format xml --output sbom.xml
+        # Generate JSON SBOM
+        cargo cyclonedx --format json > sbom.json
+        # Generate XML SBOM
+        cargo cyclonedx --format xml > sbom.xml
 
     - name: Upload SBOM
       uses: actions/upload-artifact@v4
