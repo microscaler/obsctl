@@ -315,35 +315,100 @@ jobs:
           echo "🏷️  Available types:"
           echo "   feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
 
+  # Lint and Build Cache (creates shared cache for all subsequent Rust builds)
+  lint:
+    name: Lint & Build Cache
+    runs-on: ubuntu-latest
+    needs: [controller, branch-validation, conventional-commits]
+    if: |
+      needs.controller.outputs.should_run_ci == 'true' &&
+      (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
+      needs.conventional-commits.result == 'success'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Install sccache
+      run: |
+        SCCACHE_VERSION="v0.7.4"
+        curl -L "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSION}/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar xz
+        sudo mv sccache-*/sccache /usr/local/bin/
+        sccache --version
+
+    - name: Cache Cargo dependencies (SHARED)
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: shared-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          shared-${{ runner.os }}-cargo-
+
+    - name: Cache sccache (SHARED)
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/sccache
+        key: shared-${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          shared-${{ runner.os }}-sccache-
+
+    - name: Configure sccache
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        echo "SCCACHE_DIR=$HOME/.cache/sccache" >> $GITHUB_ENV
+
+    - name: Run linting and populate cache
+      run: |
+        echo "🔍 Running clippy (debug build - populates cache)"
+        cargo clippy --all-targets --all-features -- -D warnings
+
+        echo "🔍 Running clippy (release build - populates cache)"
+        cargo clippy --all-targets --all-features --release -- -D warnings
+
+        echo "📊 Cache statistics:"
+        sccache --show-stats
+
+        echo "✅ Shared cache populated for all subsequent builds"
+
   # Main CI Pipeline
   ci:
     name: Continuous Integration
-    needs: [controller, branch-validation, conventional-commits]
+    needs: [controller, branch-validation, conventional-commits, lint]
     if: |
       needs.controller.outputs.should_run_ci == 'true' &&
       (github.event.inputs.skip_tests != 'true') &&
       (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
-      needs.conventional-commits.result == 'success'
+      needs.conventional-commits.result == 'success' &&
+      needs.lint.result == 'success'
     uses: ./.github/workflows/ci.yml
 
-  # Security Analysis Pipeline (runs in parallel with CI)
+  # Security Analysis Pipeline (runs in parallel with CI, uses shared cache)
   security:
     name: Security Analysis
-    needs: [controller, branch-validation, conventional-commits]
+    needs: [controller, branch-validation, conventional-commits, lint]
     if: |
       needs.controller.outputs.should_run_ci == 'true' &&
       (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
-      needs.conventional-commits.result == 'success'
+      needs.conventional-commits.result == 'success' &&
+      needs.lint.result == 'success'
     uses: ./.github/workflows/codeql.yml
 
   # Release Pipeline (only on PR merges to main/master or manual dispatch)
   release:
     name: Release Pipeline
-    needs: [controller, branch-validation, conventional-commits, ci, security]
+    needs: [controller, branch-validation, conventional-commits, lint, ci, security]
     if: |
       needs.controller.outputs.should_run_release == 'true' &&
       (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
       needs.conventional-commits.result == 'success' &&
+      needs.lint.result == 'success' &&
       (needs.ci.result == 'success' || needs.ci.result == 'skipped') &&
       (needs.security.result == 'success' || needs.security.result == 'skipped')
     uses: ./.github/workflows/release-please.yml
@@ -353,7 +418,7 @@ jobs:
   status:
     name: Status Report
     runs-on: ubuntu-latest
-    needs: [controller, branch-validation, conventional-commits, ci, security, release]
+    needs: [controller, branch-validation, conventional-commits, lint, ci, security, release]
     if: always()
     steps:
     - name: Report Status
@@ -369,6 +434,7 @@ jobs:
         echo "  Controller: ${{ needs.controller.result }}"
         echo "  Branch Validation: ${{ needs.branch-validation.result }}"
         echo "  Conventional Commits: ${{ needs.conventional-commits.result }}"
+        echo "  Lint & Build Cache: ${{ needs.lint.result }}"
         echo "  CI: ${{ needs.ci.result }}"
         echo "  Security: ${{ needs.security.result }}"
         echo "  Release: ${{ needs.release.result }}"
@@ -392,6 +458,11 @@ jobs:
         if [ "${{ needs.conventional-commits.result }}" = "failure" ]; then
           FAILURES=$((FAILURES + 1))
           CRITICAL_FAILURES="$CRITICAL_FAILURES Conventional-Commits"
+        fi
+
+        if [ "${{ needs.lint.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES Lint"
         fi
 
         if [ "${{ needs.ci.result }}" = "failure" ]; then
@@ -431,6 +502,10 @@ jobs:
             echo "   • Conventional Commits: Commit messages don't follow conventional format"
           fi
 
+          if [ "${{ needs.lint.result }}" = "failure" ]; then
+            echo "   • Lint & Build Cache: Code quality checks or cache population failed"
+          fi
+
           if [ "${{ needs.ci.result }}" = "failure" ]; then
             echo "   • CI: Build, test, or quality checks failed"
           fi
@@ -448,10 +523,10 @@ jobs:
 
         echo ""
         echo "📊 Pipeline Statistics:"
-        echo "   Total Jobs: 6"
-        echo "   Successful: $((6 - FAILURES))"
+        echo "   Total Jobs: 7"
+        echo "   Successful: $((7 - FAILURES))"
         echo "   Failed: $FAILURES"
-        echo "   Success Rate: $(( (6 - FAILURES) * 100 / 6 ))%"
+        echo "   Success Rate: $(( (7 - FAILURES) * 100 / 7 ))%"
 
   # Notification for failed releases (only on main branch)
   notify-release-failure:
