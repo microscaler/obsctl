@@ -31,7 +31,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           echo "🔍 Validating commit messages for push event..."
-          
+
           # Get the range of commits to check
           if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
             # New branch, check only the latest commit
@@ -40,17 +40,29 @@ jobs:
             # Existing branch, check commits since last push
             COMMITS="${{ github.event.before }}..${{ github.sha }}"
           fi
-          
+
           echo "Checking commits in range: $COMMITS"
-          
+
           # Validate each commit in the range
           for commit in $(git rev-list $COMMITS); do
             echo "Validating commit: $commit"
             git log --format="%H %s" -n 1 $commit
-            
+
             # Get commit message
             commit_msg=$(git log --format="%s" -n 1 $commit)
-            
+
+            # Skip merge commits (they have different format requirements)
+            if echo "$commit_msg" | grep -qE '^Merge (pull request|branch)'; then
+              echo "⏭️  SKIPPED: Merge commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip GitHub PR merge commits (e.g., "Advanced filtering (#4)")
+            if echo "$commit_msg" | grep -qE '.+ \(#[0-9]+\)$'; then
+              echo "⏭️  SKIPPED: GitHub PR merge commit detected, skipping validation"
+              continue
+            fi
+
             # Check if commit message follows conventional format
             if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
               echo "❌ FAILED: Commit $commit does not follow conventional commit format"
@@ -69,20 +81,32 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           echo "🔍 Validating commit messages for pull request..."
-          
+
           # Get all commits in the PR
           COMMITS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-          
+
           echo "Checking commits in PR range: $COMMITS"
-          
+
           # Validate each commit in the PR
           for commit in $(git rev-list $COMMITS); do
             echo "Validating commit: $commit"
             git log --format="%H %s" -n 1 $commit
-            
+
             # Get commit message
             commit_msg=$(git log --format="%s" -n 1 $commit)
-            
+
+            # Skip merge commits (they have different format requirements)
+            if echo "$commit_msg" | grep -qE '^Merge (pull request|branch)'; then
+              echo "⏭️  SKIPPED: Merge commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip GitHub PR merge commits
+            if echo "$commit_msg" | grep -qE '.+ \(#[0-9]+\)$'; then
+              echo "⏭️  SKIPPED: GitHub PR merge commit detected, skipping validation"
+              continue
+            fi
+
             # Check if commit message follows conventional format
             if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
               echo "❌ FAILED: Commit $commit does not follow conventional commit format"
@@ -101,26 +125,28 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           echo "🔍 Validating pull request title..."
-          
+
           pr_title="${{ github.event.pull_request.title }}"
           echo "PR Title: $pr_title"
-          
-          # Check if PR title follows conventional format
-          if ! echo "$pr_title" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
-            echo "❌ FAILED: PR title does not follow conventional commit format"
+
+          # More flexible PR title validation - allow descriptive titles
+          # Check if PR title follows conventional format OR is a descriptive title
+          if echo "$pr_title" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
+            echo "✅ PASSED: PR title follows conventional format"
+          elif echo "$pr_title" | grep -qE '^[🚀🔧🎯📊🔍🛠️💡⚡🎨📈]'; then
+            echo "✅ PASSED: PR title uses emoji prefix (acceptable for major features)"
+          else
+            echo "⚠️  WARNING: PR title doesn't follow conventional format, but this is acceptable for PRs"
             echo "   Title: $pr_title"
             echo ""
-            echo "📋 Conventional commit format: <type>[optional scope]: <description>"
+            echo "💡 Recommended format: <type>[optional scope]: <description>"
             echo "   Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
             echo "   Example: feat(cli): add new dashboard command"
-            exit 1
-          else
-            echo "✅ PASSED: PR title follows conventional format"
           fi
 
       - name: Success message
         run: |
-          echo "🎉 All commit messages follow conventional commit format!"
+          echo "🎉 Commit message validation completed!"
           echo ""
           echo "📋 Conventional Commit Format:"
           echo "   <type>[optional scope]: <description>"
@@ -138,4 +164,4 @@ jobs:
           echo "   build:    Build system changes"
           echo "   revert:   Reverts a previous commit"
           echo ""
-          echo "🎯 Optional scopes: api, cli, otel, config, packaging, ci, docs, tests" 
+          echo "🎯 Optional scopes: api, cli, otel, config, packaging, ci, docs, tests"

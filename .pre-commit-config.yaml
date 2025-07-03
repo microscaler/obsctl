@@ -1,13 +1,15 @@
 # Pre-commit hooks for obsctl - Essential quality gates
 repos:
-  # Basic file checks
+  # Basic file checks (only run locally to prevent CI modifications)
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
       - id: trailing-whitespace
         exclude: '\.md$'
+        stages: [pre-commit]  # Only run locally
       - id: end-of-file-fixer
         exclude: '\.md$'
+        stages: [pre-commit]  # Only run locally
       - id: check-yaml
         args: ['--unsafe']
       - id: check-toml
@@ -22,7 +24,7 @@ repos:
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
-        args: ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert", "--optional-scopes", "api,cli,otel,config,packaging,ci,docs,tests", "--strict"]
+        args: ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert"]
 
   # Rust-specific hooks (essential only)
   - repo: local

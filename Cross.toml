@@ -1,0 +1,61 @@
+# Cross-compilation configuration for obsctl
+# See: https://github.com/cross-rs/cross
+
+[build]
+# Default target configuration
+default-target = "x86_64-unknown-linux-gnu"
+
+[target.armv7-unknown-linux-gnueabihf]
+# ARM v7 configuration
+dockerfile = "Dockerfile.armv7"
+image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:main"
+
+[target.aarch64-unknown-linux-gnu]
+# ARM64 configuration
+dockerfile = "Dockerfile.aarch64"
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
+
+[target.x86_64-pc-windows-gnu]
+# Windows GNU configuration
+dockerfile = "Dockerfile.windows"
+image = "ghcr.io/cross-rs/x86_64-pc-windows-gnu:main"
+
+# Environment variables for cross-compilation
+[build.env]
+passthrough = [
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_REGION",
+    "AWS_ENDPOINT_URL",
+    "CARGO_TARGET_DIR",
+    "PKG_CONFIG_ALLOW_CROSS",
+    "PKG_CONFIG_ALL_STATIC",
+    "BINDGEN_EXTRA_CLANG_ARGS"
+]
+
+# ARM v7 specific environment
+[target.armv7-unknown-linux-gnueabihf.env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+PKG_CONFIG_ALL_STATIC = "1"
+CC_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-gcc"
+CXX_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-g++"
+AR_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-ar"
+CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = "arm-linux-gnueabihf-gcc"
+
+# ARM64 specific environment
+[target.aarch64-unknown-linux-gnu.env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+PKG_CONFIG_ALL_STATIC = "1"
+CC_aarch64_unknown_linux_gnu = "aarch64-linux-gnu-gcc"
+CXX_aarch64_unknown_linux_gnu = "aarch64-linux-gnu-g++"
+AR_aarch64_unknown_linux_gnu = "aarch64-linux-gnu-ar"
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "aarch64-linux-gnu-gcc"
+
+# Windows GNU specific environment
+[target.x86_64-pc-windows-gnu.env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+CC_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-gcc"
+CXX_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-g++"
+AR_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-ar"
+CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "x86_64-w64-mingw32-gcc"
