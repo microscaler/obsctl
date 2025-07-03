@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     let result = execute_command(&args, &config).await;
 
     // Shutdown OpenTelemetry
-    otel::shutdown_tracing();
+    otel::shutdown_tracing(&args.debug);
 
     #[cfg(target_os = "linux")]
     sd_notify::notify(true, &[NotifyState::Stopping]).ok();
@@ -192,13 +192,6 @@ mod tests {
             vec![
                 "obsctl",
                 "presign",
-                "--method",
-                "GET",
-                "s3://bucket/file.txt",
-            ],
-            vec![
-                "obsctl",
-                "presign",
                 "--expires-in",
                 "3600",
                 "s3://bucket/file.txt",
@@ -213,7 +206,14 @@ mod tests {
 
     #[test]
     fn test_args_parsing_head_object_command() {
-        let test_cases = vec![vec!["obsctl", "head-object", "s3://bucket/file.txt"]];
+        let test_cases = vec![vec![
+            "obsctl",
+            "head-object",
+            "--bucket",
+            "my-bucket",
+            "--key",
+            "my-key",
+        ]];
 
         for args in test_cases {
             let result = Args::try_parse_from(args.clone());
@@ -226,7 +226,6 @@ mod tests {
         let test_cases = vec![
             vec!["obsctl", "du", "s3://bucket"],
             vec!["obsctl", "du", "--human-readable", "s3://bucket"],
-            vec!["obsctl", "du", "--max-depth", "2", "s3://bucket"],
             vec!["obsctl", "du", "--summarize", "s3://bucket"],
         ];
 

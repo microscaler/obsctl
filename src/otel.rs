@@ -963,21 +963,29 @@ pub fn init_tracing(otel_config: &OtelConfig, debug_level: &str) -> Result<()> {
 }
 
 /// Shutdown OpenTelemetry tracing with proper metric flushing
-pub fn shutdown_tracing() {
+pub fn shutdown_tracing(debug_level: &str) {
+    let is_debug = matches!(debug_level, "debug" | "trace");
+
     {
         use std::time::Duration;
 
-        log::info!("🔄 OpenTelemetry shutdown requested - flushing metrics and traces...");
+        if is_debug {
+            log::info!("🔄 OpenTelemetry shutdown requested - flushing metrics and traces...");
+        }
 
         // Give enough time for at least 2 export cycles (1 second interval + buffer)
         // This ensures all pending metrics and traces are exported before shutdown
         std::thread::sleep(Duration::from_millis(2500));
 
-        log::info!("🎉 OpenTelemetry shutdown complete - all pending metrics and traces flushed");
+        if is_debug {
+            log::info!(
+                "🎉 OpenTelemetry shutdown complete - all pending metrics and traces flushed"
+            );
+        }
     }
 
-    {
-        log::debug!("OpenTelemetry not enabled, nothing to shutdown");
+    if is_debug {
+        log::debug!("OpenTelemetry shutdown completed");
     }
 }
 

@@ -653,9 +653,60 @@ async fn show_otel_configuration() -> Result<()> {
     println!("  • {} - Bucket analytics", "obsctl_bucket_*".dimmed());
     println!();
 
+    println!("{}", "Docker Compose Integration:".bold());
+    println!("  📊 Complete observability stack available:");
+    println!("     docker compose up -d    # Start all services");
+    println!("     • MinIO (S3): http://localhost:9000");
+    println!("     • OTEL Collector: http://localhost:4317");
+    println!("     • Prometheus: http://localhost:9090");
+    println!("     • Grafana: http://localhost:3000");
+    println!("     • Jaeger: http://localhost:16686");
+    println!();
+
+    println!("{}", "Dashboard Installation:".bold());
+    println!("  📈 Install obsctl dashboards to Grafana:");
+    println!("     obsctl config dashboard install");
+    println!("     # Dashboards auto-refresh every 5 seconds");
+    println!("     # Includes business metrics, performance, and error monitoring");
+    println!();
+
     println!("{}", "Quick Test:".bold());
     println!("  {} obsctl ls s3://bucket", "OTEL_ENABLED=true".yellow());
     println!("  # Check metrics at http://localhost:9090 (Prometheus)");
+    println!("  # View dashboards at http://localhost:3000 (Grafana)");
+    println!();
+
+    println!("{}", "Troubleshooting:".bold());
+    println!("  🔍 Common issues and solutions:");
+    println!("     • No metrics in Prometheus?");
+    println!("       → Check OTEL Collector logs: docker compose logs otel-collector");
+    println!("       → Verify endpoint: curl http://localhost:4317/v1/metrics");
+    println!("     • Grafana dashboards empty?");
+    println!("       → Run: obsctl config dashboard install");
+    println!("       → Check Prometheus datasource in Grafana");
+    println!("     • High resource usage?");
+    println!("       → Use sampling: OTEL_TRACES_SAMPLER=parentbased_traceidratio");
+    println!("       → Set sample rate: OTEL_TRACES_SAMPLER_ARG=0.1");
+    println!();
+
+    println!("{}", "Production Configuration:".bold());
+    println!("  🏭 For production environments:");
+    println!("     • Use remote OTEL collector endpoint");
+    println!("     • Set service name per environment (obsctl-prod, obsctl-staging)");
+    println!("     • Enable sampling to reduce overhead");
+    println!("     • Configure resource attributes for filtering");
+    println!();
+    println!("  Example production setup:");
+    println!("     {}", "OTEL_ENABLED=true".yellow());
+    println!(
+        "     {}",
+        "OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.company.com:4317".yellow()
+    );
+    println!("     {}", "OTEL_SERVICE_NAME=obsctl-prod".yellow());
+    println!(
+        "     {}",
+        "OTEL_RESOURCE_ATTRIBUTES=environment=production,team=storage".yellow()
+    );
 
     Ok(())
 }
