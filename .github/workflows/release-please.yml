@@ -51,7 +51,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -158,7 +158,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Cache Cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -186,35 +186,54 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux builds (aligned with CI fixes)
-          - platform: linux-x64
+          # Linux builds (x86_64, ARM64, ARMv7)
+          - platform: linux-amd64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             native: true
+            arch_name: amd64
           - platform: linux-arm64
             os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             cross: true
+            arch_name: arm64
           - platform: linux-armv7
             os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             cross: true
+            arch_name: armhf
 
-          # macOS builds (native on macOS runners)
-          - platform: macos-intel
+          # macOS builds (Intel x86_64, Apple Silicon ARM64)
+          - platform: macos-amd64
             os: macos-latest
             target: x86_64-apple-darwin
             native: true
+            arch_name: amd64
           - platform: macos-arm64
             os: macos-latest
             target: aarch64-apple-darwin
             native: true
+            arch_name: arm64
 
-          # Windows build (cross-compilation from Ubuntu)
-          - platform: windows-x64
+          # Windows builds (x86_64, ARM64, ARMv7 for IoT)
+          - platform: windows-amd64
             os: ubuntu-latest
             target: x86_64-pc-windows-gnu
             cross: true
+            arch_name: amd64
+            binary_ext: .exe
+          - platform: windows-arm64
+            os: ubuntu-latest
+            target: aarch64-pc-windows-gnullvm
+            cross: true
+            arch_name: arm64
+            binary_ext: .exe
+          - platform: windows-armv7
+            os: ubuntu-latest
+            target: armv7-pc-windows-gnueabi
+            cross: true
+            arch_name: armhf
+            binary_ext: .exe
 
     steps:
     - name: Checkout code
@@ -231,36 +250,40 @@ jobs:
       run: |
         cargo install cross --git https://github.com/cross-rs/cross
 
-    - name: Install native dependencies (Linux cross-compilation)
-      if: matrix.os == 'ubuntu-latest' && matrix.cross == true
+    - name: Install native dependencies (cross-compilation)
+      if: matrix.cross == true
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           gcc-arm-linux-gnueabihf \
           gcc-aarch64-linux-gnu \
           mingw-w64 \
+          gcc-mingw-w64-x86-64 \
+          gcc-mingw-w64-i686 \
           cmake \
-          pkg-config
+          pkg-config \
+          clang \
+          llvm
 
     - name: Cache Cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: build-${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.target }}-cargo-
-          ${{ runner.os }}-cargo-
+          build-${{ runner.os }}-${{ matrix.target }}-cargo-
+          build-${{ runner.os }}-cargo-
 
     - name: Build binary
       run: |
         if [ "${{ matrix.cross }}" = "true" ]; then
-          echo "Cross-compiling for ${{ matrix.target }}"
+          echo "🔧 Cross-compiling for ${{ matrix.target }} on ${{ matrix.platform }}"
           cross build --target ${{ matrix.target }} --release
         else
-          echo "Native build for ${{ matrix.target }}"
+          echo "🏗️ Native build for ${{ matrix.target }} on ${{ matrix.platform }}"
           cargo build --target ${{ matrix.target }} --release
         fi
       shell: bash
@@ -270,11 +293,8 @@ jobs:
         mkdir -p release/${{ matrix.platform }}
 
         # Copy binary with correct extension
-        if [ "${{ matrix.platform }}" = "windows-x64" ]; then
-          cp target/${{ matrix.target }}/release/obsctl.exe release/${{ matrix.platform }}/
-        else
-          cp target/${{ matrix.target }}/release/obsctl release/${{ matrix.platform }}/
-        fi
+        BINARY_NAME="obsctl${{ matrix.binary_ext || '' }}"
+        cp target/${{ matrix.target }}/release/$BINARY_NAME release/${{ matrix.platform }}/
 
         # Copy documentation and support files
         cp README.md release/${{ matrix.platform }}/
@@ -286,20 +306,28 @@ jobs:
         mkdir -p release/${{ matrix.platform }}/dashboards
         cp packaging/dashboards/*.json release/${{ matrix.platform }}/dashboards/
 
-        # Platform-specific packaging files
-        if [ "${{ matrix.platform }}" = "linux-x64" ] || [ "${{ matrix.platform }}" = "linux-arm64" ] || [ "${{ matrix.platform }}" = "linux-armv7" ]; then
+        # Platform-specific packaging files for Linux
+        if [[ "${{ matrix.platform }}" == linux-* ]]; then
           mkdir -p release/${{ matrix.platform }}/debian
           cp packaging/debian/* release/${{ matrix.platform }}/debian/ 2>/dev/null || true
         fi
+
+        # Show build info
+        echo "📦 Built for platform: ${{ matrix.platform }}"
+        echo "🎯 Target: ${{ matrix.target }}"
+        echo "🏗️ Architecture: ${{ matrix.arch_name }}"
+        ls -la release/${{ matrix.platform }}/
       shell: bash
 
     - name: Create platform archive
       run: |
         cd release
-        if [ "${{ matrix.platform }}" = "windows-x64" ]; then
+        if [[ "${{ matrix.platform }}" == windows-* ]]; then
           zip -r obsctl-${{ needs.release-please.outputs.tag_name }}-${{ matrix.platform }}.zip ${{ matrix.platform }}/
+          echo "📦 Created ZIP archive for Windows"
         else
           tar -czf obsctl-${{ needs.release-please.outputs.tag_name }}-${{ matrix.platform }}.tar.gz ${{ matrix.platform }}/
+          echo "📦 Created TAR.GZ archive for Unix-like OS"
         fi
       shell: bash
 
@@ -328,7 +356,7 @@ jobs:
     - name: Create Universal Binary
       run: |
         # Extract the macOS binaries
-        tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-macos-intel.tar.gz
+        tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-macos-amd64.tar.gz
         tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-macos-arm64.tar.gz
 
         # Create universal binary directory
@@ -336,16 +364,16 @@ jobs:
 
         # Use lipo to create universal binary
         lipo -create \
-          macos-intel/obsctl \
+          macos-amd64/obsctl \
           macos-arm64/obsctl \
           -output release/macos-universal/obsctl
 
         # Copy support files
-        cp macos-intel/README.md release/macos-universal/
-        cp macos-intel/LICENSE* release/macos-universal/ 2>/dev/null || true
-        cp macos-intel/obsctl.1 release/macos-universal/
-        cp macos-intel/obsctl.bash-completion release/macos-universal/
-        cp -r macos-intel/dashboards release/macos-universal/
+        cp macos-amd64/README.md release/macos-universal/
+        cp macos-amd64/LICENSE* release/macos-universal/ 2>/dev/null || true
+        cp macos-amd64/obsctl.1 release/macos-universal/
+        cp macos-amd64/obsctl.bash-completion release/macos-universal/
+        cp -r macos-amd64/dashboards release/macos-universal/
 
         # Verify universal binary
         file release/macos-universal/obsctl
@@ -371,7 +399,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: linux-x64
+          - platform: linux-amd64
             arch: amd64
           - platform: linux-arm64
             arch: arm64
@@ -456,10 +484,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download Windows artifact
+    - name: Download Windows artifacts
       uses: actions/download-artifact@v4
       with:
-        name: obsctl-windows-x64
+        pattern: obsctl-windows-*
+        merge-multiple: true
 
     - name: Create Chocolatey package
       run: |
@@ -468,11 +497,15 @@ jobs:
         New-Item -ItemType Directory -Force -Path "chocolatey/tools"
         New-Item -ItemType Directory -Force -Path "chocolatey/legal"
 
-        # Extract Windows binary
-        Expand-Archive -Path "obsctl-${{ needs.release-please.outputs.tag_name }}-windows-x64.zip" -DestinationPath "."
-
-        # Calculate checksum for verification
-        $checksum = (Get-FileHash "obsctl-${{ needs.release-please.outputs.tag_name }}-windows-x64.zip" -Algorithm SHA256).Hash
+        # Extract Windows binaries (prioritize AMD64 for Chocolatey)
+        $amd64Archive = "obsctl-${{ needs.release-please.outputs.tag_name }}-windows-amd64.zip"
+        if (Test-Path $amd64Archive) {
+          Expand-Archive -Path $amd64Archive -DestinationPath "."
+          $checksum = (Get-FileHash $amd64Archive -Algorithm SHA256).Hash
+        } else {
+          Write-Error "AMD64 Windows archive not found for Chocolatey packaging"
+          exit 1
+        }
 
         # Get version without 'v' prefix
         $version = "${{ needs.release-please.outputs.tag_name }}" -replace '^v', ''
@@ -503,7 +536,7 @@ jobs:
         $verification = @"
         VERIFICATION
         Package can be verified by downloading:
-        x64: https://github.com/${{ github.repository }}/releases/download/${{ needs.release-please.outputs.tag_name }}/obsctl-${{ needs.release-please.outputs.tag_name }}-windows-x64.zip
+        AMD64: https://github.com/${{ github.repository }}/releases/download/${{ needs.release-please.outputs.tag_name }}/obsctl-${{ needs.release-please.outputs.tag_name }}-windows-amd64.zip
 
         Checksum: $($checksum.ToLower())
         "@
@@ -542,29 +575,48 @@ jobs:
 
           ### 📦 Downloads
 
-          #### Binaries
-          - **Linux x64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-x64.tar.gz`
+          #### Linux Binaries
+          - **Linux AMD64/x86_64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-amd64.tar.gz`
           - **Linux ARM64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-arm64.tar.gz`
           - **Linux ARMv7**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-armv7.tar.gz`
-          - **Windows x64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-x64.zip`
-          - **macOS Universal**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-universal.tar.gz`
+
+          #### Windows Binaries
+          - **Windows AMD64/x86_64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-amd64.zip`
+          - **Windows ARM64** (Windows on ARM): `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-arm64.zip`
+          - **Windows ARMv7** (Windows IoT): `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-armv7.zip`
+
+          #### macOS Binaries
+          - **macOS AMD64/Intel**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-amd64.tar.gz`
+          - **macOS ARM64/Apple Silicon**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-arm64.tar.gz`
+          - **macOS Universal Binary**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-universal.tar.gz`
 
           #### Package Managers
           - **Debian/Ubuntu**: `obsctl-*-amd64.deb`, `obsctl-*-arm64.deb`, `obsctl-*-armhf.deb`
-          - **Chocolatey**: See chocolatey-package artifact
+          - **Chocolatey**: See chocolatey-package artifact (AMD64 only)
 
           ### 🔧 Installation
 
           ```bash
-          # Linux/macOS (extract and copy to PATH)
-          tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-linux-x64.tar.gz
-          sudo cp linux-x64/obsctl /usr/local/bin/
+          # Linux AMD64 (extract and copy to PATH)
+          tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-linux-amd64.tar.gz
+          sudo cp linux-amd64/obsctl /usr/local/bin/
+
+          # Linux ARM64 (Raspberry Pi 4, AWS Graviton, etc.)
+          tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-linux-arm64.tar.gz
+          sudo cp linux-arm64/obsctl /usr/local/bin/
 
           # Debian/Ubuntu
-          sudo dpkg -i obsctl-*-amd64.deb
+          sudo dpkg -i obsctl-*-amd64.deb    # For x86_64
+          sudo dpkg -i obsctl-*-arm64.deb    # For ARM64
+          sudo dpkg -i obsctl-*-armhf.deb    # For ARMv7
 
-          # Windows (Chocolatey - coming soon)
-          # choco install obsctl
+          # Windows PowerShell (extract to PATH)
+          Expand-Archive obsctl-*-windows-amd64.zip
+          # Copy obsctl.exe to a directory in your PATH
+
+          # macOS (Universal Binary recommended)
+          tar -xzf obsctl-*-macos-universal.tar.gz
+          sudo cp macos-universal/obsctl /usr/local/bin/
           ```
 
           ### ✨ Features
@@ -572,13 +624,18 @@ jobs:
           - 🎨 Intelligent pattern matching (wildcards + regex)
           - 📊 Complete OpenTelemetry observability
           - 🛠️ Universal S3 compatibility
-          - 🚀 Cross-platform support (6 architectures)
+          - 🚀 Cross-platform support (9 architectures)
+
+          ### 🏗️ Platform Support
+          - **Linux**: AMD64, ARM64, ARMv7 (Raspberry Pi, embedded systems)
+          - **Windows**: AMD64, ARM64 (Surface Pro X, Snapdragon PCs), ARMv7 (IoT devices)
+          - **macOS**: Intel, Apple Silicon, Universal Binary
 
           ### ✅ Quality Assurance
           - ✅ Release configuration tests passed
           - ✅ Cross-platform builds validated
           - ✅ Security audit completed
-          - ✅ All 6 target platforms supported
+          - ✅ All 9 target platforms supported
         files: |
           obsctl-${{ needs.release-please.outputs.tag_name }}-*.tar.gz
           obsctl-${{ needs.release-please.outputs.tag_name }}-*.zip

@@ -33,7 +33,7 @@ jobs:
       run: pip install pre-commit
 
     - name: Cache pre-commit
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pre-commit
         key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -61,7 +61,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache Cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -80,33 +80,49 @@ jobs:
     - name: Check formatting
       run: cargo fmt -- --check
 
-  # Build test for cross-compilation targets - FIXED
+  # Build test for cross-compilation targets - COMPREHENSIVE PLATFORM SUPPORT
   build-test:
-    name: Build Test ${{ matrix.target }}
+    name: Build Test ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Native builds (no cross-compilation needed)
-          - target: x86_64-unknown-linux-gnu
+          # Linux builds (AMD64, ARM64, ARMv7)
+          - platform: linux-amd64
+            target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             native: true
-          - target: x86_64-apple-darwin
+          - platform: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - platform: linux-armv7
+            target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            cross: true
+
+          # macOS builds (Intel, Apple Silicon)
+          - platform: macos-amd64
+            target: x86_64-apple-darwin
             os: macos-latest
             native: true
-          - target: aarch64-apple-darwin
+          - platform: macos-arm64
+            target: aarch64-apple-darwin
             os: macos-latest
             native: true
 
-          # Cross-compilation builds (using cross tool)
-          - target: aarch64-unknown-linux-gnu
+          # Windows builds (AMD64, ARM64, ARMv7)
+          - platform: windows-amd64
+            target: x86_64-pc-windows-gnu
             os: ubuntu-latest
             cross: true
-          - target: armv7-unknown-linux-gnueabihf
+          - platform: windows-arm64
+            target: aarch64-pc-windows-gnullvm
             os: ubuntu-latest
             cross: true
-          - target: x86_64-pc-windows-gnu
+          - platform: windows-armv7
+            target: armv7-pc-windows-gnueabi
             os: ubuntu-latest
             cross: true
 
@@ -125,44 +141,52 @@ jobs:
       run: |
         cargo install cross --git https://github.com/cross-rs/cross
 
-    - name: Install native dependencies (Linux)
-      if: matrix.os == 'ubuntu-latest' && matrix.cross == true
+    - name: Install native dependencies (cross-compilation)
+      if: matrix.cross == true
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           gcc-arm-linux-gnueabihf \
           gcc-aarch64-linux-gnu \
           mingw-w64 \
+          gcc-mingw-w64-x86-64 \
+          gcc-mingw-w64-i686 \
           cmake \
-          pkg-config
+          pkg-config \
+          clang \
+          llvm
 
     - name: Cache Cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ci-${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.target }}-cargo-
-          ${{ runner.os }}-cargo-
+          ci-${{ runner.os }}-${{ matrix.target }}-cargo-
+          ci-${{ runner.os }}-cargo-
 
     - name: Build for target
       run: |
         if [ "${{ matrix.cross }}" = "true" ]; then
-          echo "Cross-compiling for ${{ matrix.target }}"
+          echo "🔧 Cross-compiling for ${{ matrix.target }} on ${{ matrix.platform }}"
           cross build --target ${{ matrix.target }} --release
         else
-          echo "Native build for ${{ matrix.target }}"
+          echo "🏗️ Native build for ${{ matrix.target }} on ${{ matrix.platform }}"
           cargo build --target ${{ matrix.target }} --release
         fi
+
+        echo "📦 Build completed for platform: ${{ matrix.platform }}"
+        echo "🎯 Target: ${{ matrix.target }}"
+        ls -la target/${{ matrix.target }}/release/
       shell: bash
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: obsctl-${{ matrix.target }}
+        name: obsctl-ci-${{ matrix.platform }}
         path: |
           target/${{ matrix.target }}/release/obsctl*
           !target/${{ matrix.target }}/release/obsctl.d

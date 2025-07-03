@@ -16,9 +16,17 @@ dockerfile = "Dockerfile.aarch64"
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
 
 [target.x86_64-pc-windows-gnu]
-# Windows GNU configuration
+# Windows AMD64 GNU configuration
 dockerfile = "Dockerfile.windows"
 image = "ghcr.io/cross-rs/x86_64-pc-windows-gnu:main"
+
+[target.aarch64-pc-windows-gnullvm]
+# Windows ARM64 configuration (LLVM backend)
+image = "ghcr.io/cross-rs/aarch64-pc-windows-gnullvm:main"
+
+[target.armv7-pc-windows-gnueabi]
+# Windows ARMv7 configuration (for IoT devices)
+image = "ghcr.io/cross-rs/armv7-pc-windows-gnueabi:main"
 
 # Environment variables for cross-compilation
 [build.env]
@@ -52,10 +60,20 @@ CXX_aarch64_unknown_linux_gnu = "aarch64-linux-gnu-g++"
 AR_aarch64_unknown_linux_gnu = "aarch64-linux-gnu-ar"
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "aarch64-linux-gnu-gcc"
 
-# Windows GNU specific environment
+# Windows AMD64 GNU specific environment
 [target.x86_64-pc-windows-gnu.env]
 PKG_CONFIG_ALLOW_CROSS = "1"
 CC_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-gcc"
 CXX_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-g++"
 AR_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-ar"
 CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "x86_64-w64-mingw32-gcc"
+
+# Windows ARM64 specific environment (LLVM)
+[target.aarch64-pc-windows-gnullvm.env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+# LLVM-based toolchain for Windows ARM64
+
+# Windows ARMv7 specific environment
+[target.armv7-pc-windows-gnueabi.env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+# ARM v7 toolchain for Windows IoT
