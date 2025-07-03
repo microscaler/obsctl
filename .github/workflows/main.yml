@@ -77,21 +77,16 @@ jobs:
         # CI should run on all pushes and PRs
         SHOULD_RUN_CI=true
 
-        # Release should only run on PR merges to main/master or manual dispatch
+        # Release should only run on main/master pushes or manual dispatch
+        # Let release-please determine if a release is actually needed
         if [ "$IS_MAIN_BRANCH" = "true" ] && [ "${{ github.event_name }}" = "push" ]; then
-          # Check if this is a merge commit (PR merge)
-          COMMIT_MESSAGE=$(git log --format=%s -n 1 ${{ github.sha }})
-          if echo "$COMMIT_MESSAGE" | grep -qE '^Merge pull request #[0-9]+' || echo "$COMMIT_MESSAGE" | grep -qE '.+ \(#[0-9]+\)$'; then
-            echo "🔄 Detected PR merge commit: $COMMIT_MESSAGE"
-            SHOULD_RUN_RELEASE=true
-          else
-            echo "⏭️  Direct push to main/master detected, skipping release"
-            echo "   Commit: $COMMIT_MESSAGE"
-            SHOULD_RUN_RELEASE=false
-          fi
+          echo "🔄 Main branch push detected, allowing release-please to determine if release is needed"
+          SHOULD_RUN_RELEASE=true
         elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_release }}" = "true" ]; then
+          echo "🔄 Manual release forced via workflow dispatch"
           SHOULD_RUN_RELEASE=true
         else
+          echo "⏭️  Not a main branch push or forced release, skipping release-please"
           SHOULD_RUN_RELEASE=false
         fi
 
