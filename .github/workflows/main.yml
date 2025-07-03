@@ -19,11 +19,14 @@ on:
         type: boolean
 
 permissions:
-  contents: write
-  pull-requests: write
-  actions: read
-  checks: read
-  security-events: write
+  contents: write           # Required for repository access and release creation
+  pull-requests: write      # Required for PR management and status updates
+  actions: read             # Required for workflow execution
+  checks: read              # Required for status checks
+  security-events: write    # Required for CodeQL security analysis
+  packages: write           # Required for package publishing (Docker, etc.)
+  deployments: write        # Required for deployment status updates
+  statuses: write           # Required for commit status updates
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
