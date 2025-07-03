@@ -2,6 +2,7 @@ use anyhow::Result;
 use aws_sdk_s3::types::Object;
 use chrono::{DateTime, Utc};
 use log::info;
+use opentelemetry::trace::{Span, Tracer};
 use std::time::Instant;
 
 use crate::commands::s3_uri::parse_ls_path;
@@ -34,7 +35,25 @@ pub async fn execute(
     sort_by: Option<&str>,
     reverse: bool,
 ) -> Result<()> {
+    // Create a span for the ls operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer.span_builder("ls_operation").start(&tracer);
+
     let start_time = Instant::now();
+
+    // Record operation start using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+
+        OTEL_INSTRUMENTS
+            .operations_total
+            .add(1, &[opentelemetry::KeyValue::new("operation", "ls")]);
+
+        OTEL_INSTRUMENTS.lists_total.add(
+            1,
+            &[opentelemetry::KeyValue::new("operation", "list_buckets")],
+        );
+    }
 
     // Build filter configuration from CLI arguments
     let filter_config = build_filter_config(
@@ -192,6 +211,7 @@ pub async fn execute(
                 );
             }
 
+            span.end();
             Ok(())
         }
         Err(e) => {
@@ -203,6 +223,7 @@ pub async fn execute(
                 OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
             }
 
+            span.end();
             Err(e)
         }
     }
@@ -579,6 +600,8 @@ mod tests {
                 service_version: crate::get_service_version(),
                 read_operations: false,
             },
+            loki: crate::config::LokiConfig::default(),
+            jaeger: crate::config::JaegerConfig::default(),
         }
     }
 

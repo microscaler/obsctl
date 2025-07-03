@@ -107,6 +107,8 @@ mod tests {
                 service_version: crate::get_service_version(),
                 read_operations: false,
             },
+            loki: crate::config::LokiConfig::default(),
+            jaeger: crate::config::JaegerConfig::default(),
         }
     }
 

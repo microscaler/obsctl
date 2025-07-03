@@ -1,0 +1,12 @@
+# Jaeger Tracing Configuration for obsctl
+[jaeger]
+enabled = false
+endpoint = http://localhost:14268
+service_name = obsctl
+service_version = 0.1.0
+sampling_ratio = 1.0
+
+# Optional: Additional Jaeger settings
+# collector_endpoint = http://localhost:14268/api/traces
+# agent_endpoint = http://localhost:6831
+# tags = environment=development,team=storage

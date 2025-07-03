@@ -1,0 +1,127 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # obsctl error logs from /tmp/obsctl/error-*.log
+  - job_name: obsctl-errors
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: obsctl-errors
+          service: obsctl
+          log_type: error
+          __path__: /tmp/obsctl/error-*.log
+    pipeline_stages:
+      # Parse obsctl error log format
+      - regex:
+          expression: '^obsctl Error Report\n==================\nTimestamp: (?P<timestamp>.*)\nError ID: (?P<error_id>.*)\nVersion: (?P<version>.*)\n\nError Details:\n(?P<error_details>.*)\n\nError Chain:\n(?P<error_chain>.*)\n\nEnvironment:\n(?P<environment>.*)'
+          source: content
+      - labels:
+          error_id:
+          version:
+          level: error
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  # System logs (if available)
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: systemlogs
+          __path__: /var/log/syslog
+    pipeline_stages:
+      - match:
+          selector: '{job="systemlogs"}'
+          stages:
+            - regex:
+                expression: '^(?P<timestamp>\S+\s+\d+\s+\d+:\d+:\d+)\s+(?P<hostname>\S+)\s+(?P<service>\S+):\s+(?P<message>.*)'
+            - labels:
+                hostname:
+                service:
+            - timestamp:
+                source: timestamp
+                format: "Jan _2 15:04:05"
+
+  # obsctl systemd journal logs (Linux only)
+  - job_name: obsctl-journal
+    journal:
+      max_age: 12h
+      labels:
+        job: obsctl-journal
+        service: obsctl
+        log_type: journal
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        target_label: systemd_unit
+      - source_labels: ['__journal_syslog_identifier']
+        target_label: syslog_identifier
+    pipeline_stages:
+      - match:
+          selector: '{syslog_identifier="obsctl"}'
+          stages:
+            - regex:
+                expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\[(?P<level>\w+)\]\s+(?P<message>.*)'
+            - labels:
+                level:
+            - timestamp:
+                source: timestamp
+                format: RFC3339Nano
+
+  # Traffic generator logs (development)
+  - job_name: traffic-generator
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traffic-generator
+          service: obsctl-traffic
+          log_type: application
+          __path__: /Users/casibbald/Workspace/microscaler/obsctl/traffic_generator.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+)\s+-\s+(?P<level>\w+)\s+-\s+(?:\[(?P<user_id>[^\]]+)\]\s+)?(?P<message>.*)'
+      - labels:
+          level:
+          user_id:
+      - timestamp:
+          source: timestamp
+          format: "2006-01-02 15:04:05,000"
+
+  # Docker container logs (if running in containers)
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["logging=promtail"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        target_label: container_name
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: compose_service
+    pipeline_stages:
+      - cri: {}
+      - labels:
+          level:
+      - match:
+          selector: '{compose_service=~"obsctl.*"}'
+          stages:
+            - regex:
+                expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\[(?P<level>\w+)\]\s+(?P<message>.*)'
+            - labels:
+                level:
+            - timestamp:
+                source: timestamp
+                format: RFC3339Nano

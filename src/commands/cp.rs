@@ -1,6 +1,7 @@
 use anyhow::Result;
 use aws_sdk_s3::primitives::ByteStream;
 use log::info;
+use opentelemetry::trace::{Span, Tracer};
 use std::path::Path;
 use std::time::Instant;
 use tokio::fs;
@@ -21,11 +22,28 @@ pub async fn execute(
     include: Option<&str>,
     exclude: Option<&str>,
 ) -> Result<()> {
+    // Create a span for the cp operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("cp_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "cp"),
+            opentelemetry::KeyValue::new("source", source.to_string()),
+            opentelemetry::KeyValue::new("dest", dest.to_string()),
+            opentelemetry::KeyValue::new("recursive", recursive),
+            opentelemetry::KeyValue::new("force", force),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("cp_operation_started", vec![]);
+
     let start_time = Instant::now();
     info!("Copying from {source} to {dest}");
 
     if dryrun {
         info!("[DRY RUN] Would copy from {source} to {dest}");
+        span.end();
         return Ok(());
     }
 
@@ -106,13 +124,28 @@ pub async fn execute(
             Ok(_) => {
                 // Success is implicit - no errors recorded
                 log::debug!("CP operation completed successfully in {duration:?}");
+                span.add_event(
+                    "cp_operation_completed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "success"),
+                        opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                    ],
+                );
             }
             Err(e) => {
                 OTEL_INSTRUMENTS.record_error_with_type(&e.to_string());
+                span.add_event(
+                    "cp_operation_failed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "error"),
+                        opentelemetry::KeyValue::new("error", e.to_string()),
+                    ],
+                );
             }
         }
     }
 
+    span.end();
     result
 }
 
@@ -562,6 +595,8 @@ mod tests {
                 service_version: crate::get_service_version(),
                 read_operations: false,
             },
+            loki: crate::config::LokiConfig::default(),
+            jaeger: crate::config::JaegerConfig::default(),
         }
     }
 

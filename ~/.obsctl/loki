@@ -1,0 +1,15 @@
+# Loki Logging Configuration for obsctl
+[loki]
+enabled = false
+endpoint = http://localhost:3100
+log_level = info
+
+# Labels to add to all log entries
+label_service = obsctl
+label_environment = development
+label_version = 0.1.0
+
+# Optional: Additional Loki settings
+# batch_size = 100
+# timeout_ms = 5000
+# retry_max_attempts = 3
