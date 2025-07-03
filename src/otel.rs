@@ -1068,6 +1068,7 @@ mod tests {
             endpoint: Some("http://localhost:4317".to_string()),
             service_name: "test-service".to_string(),
             service_version: "1.0.0".to_string(),
+            read_operations: false,
         };
 
         assert!(config.enabled);
@@ -1083,6 +1084,7 @@ mod tests {
             endpoint: None,
             service_name: "test".to_string(),
             service_version: "1.0.0".to_string(),
+            read_operations: false,
         };
 
         let result = init_tracing(&config, "info");
@@ -1102,6 +1104,7 @@ mod tests {
             endpoint: Some("http://localhost:4317".to_string()),
             service_name: "obsctl".to_string(),
             service_version: crate::get_service_version(),
+            read_operations: false,
         };
 
         // Use a simple runtime for the test
@@ -1125,6 +1128,7 @@ mod tests {
             endpoint: Some("http://localhost:4317".to_string()),
             service_name: "obsctl-test".to_string(),
             service_version: "test".to_string(),
+            read_operations: false,
         };
 
         // Test with actual OTEL collector

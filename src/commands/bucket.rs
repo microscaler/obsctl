@@ -505,6 +505,7 @@ mod tests {
                 endpoint: None,
                 service_name: "obsctl-test".to_string(),
                 service_version: crate::get_service_version(),
+                read_operations: false,
             },
         }
     }

@@ -15,6 +15,7 @@ pub struct OtelConfig {
     pub endpoint: Option<String>,
     pub service_name: String,
     pub service_version: String,
+    pub read_operations: bool,
 }
 
 impl Default for OtelConfig {
@@ -24,6 +25,7 @@ impl Default for OtelConfig {
             endpoint: None,
             service_name: "obsctl".to_string(),
             service_version: env!("CARGO_PKG_VERSION").to_string(),
+            read_operations: false,
         }
     }
 }
