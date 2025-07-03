@@ -2,6 +2,27 @@
 
 This directory contains the comprehensive CI/CD pipeline for obsctl, designed around the principle of "duplication is the mother of fragility" with a single controlling workflow orchestrating all operations including integrated security analysis.
 
+## 🚀 Development Workflow
+
+### **Branch Protection Rules**
+⚠️ **IMPORTANT**: Direct pushes to `main` and `master` branches are **BLOCKED** by repository branch protection rules. All changes must go through the pull request process.
+
+### **Required Development Process**
+1. **Create Feature Branch**: `git checkout -b issue-XXX-description`
+2. **Make Changes**: Implement features, fixes, or improvements
+3. **Commit with Pre-commit Hooks**: Quality gates run automatically
+4. **Push Feature Branch**: `git push origin issue-XXX-description`
+5. **Create Pull Request**: Triggers full CI/CD pipeline
+6. **Code Review & Approval**: Required before merge
+7. **Merge to Main**: Only possible through approved PR
+
+### **Why This Matters**
+- **Quality Assurance**: Every change goes through full validation
+- **Code Review**: Peer review catches issues early
+- **CI/CD Validation**: All quality gates must pass
+- **Audit Trail**: Complete history of all changes
+- **Branch Validation**: Issue-to-branch matching enforced
+
 ## 🏗️ Architecture Overview
 
 ```mermaid

@@ -1,4 +1,15 @@
 # Pre-commit hooks for obsctl - Essential quality gates
+#
+# ⚠️  IMPORTANT: Direct pushes to main/master are BLOCKED by branch protection rules
+# All changes must go through pull requests with full CI/CD validation
+#
+# Development Process:
+# 1. Create feature branch: git checkout -b issue-XXX-description
+# 2. Make changes and commit (pre-commit hooks run automatically)
+# 3. Push feature branch: git push origin issue-XXX-description
+# 4. Create pull request (triggers full CI/CD pipeline)
+# 5. Merge only through approved PR
+#
 repos:
   # Basic file checks (only run locally to prevent CI modifications)
   - repo: https://github.com/pre-commit/pre-commit-hooks
