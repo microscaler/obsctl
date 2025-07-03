@@ -1,5 +1,5 @@
 Name:           obsctl
-Version:        0.3.0 # x-release-please-version
+Version:        0.4.0 # x-release-please-version
 Release:        1%{?dist}
 Summary:        S3-compatible CLI tool with OpenTelemetry observability
 

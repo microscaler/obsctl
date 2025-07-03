@@ -5,7 +5,7 @@ class Obsctl < Formula
   head "https://github.com/your-org/obsctl.git", branch: "main"
 
   # Version and source configuration
-  version "0.3.0" # x-release-please-version
+  version "0.4.0" # x-release-please-version
 
   # Universal Binary for macOS (supports both Intel and Apple Silicon)
   if OS.mac?
