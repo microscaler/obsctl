@@ -114,6 +114,35 @@ Every pipeline run produces a comprehensive status report showing:
 - Overall pipeline status
 - Failure reasons
 
+## ⚡ Concurrency Control
+
+### Automatic Cancellation Strategy
+All workflows implement intelligent concurrency control to optimize resource usage:
+
+- **Development Branches**: Previous builds are automatically cancelled when new pushes occur
+- **Pull Requests**: Concurrent builds for the same PR are cancelled in favor of the latest
+- **Main/Master**: Release builds are **NOT** cancelled to prevent incomplete releases
+- **Manual Dispatch**: Can override concurrency for emergency situations
+
+### Concurrency Groups
+```yaml
+# Standard workflows (CI, conventional-commits, main controller)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Release workflow (protected main/master)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+```
+
+### Benefits
+- **🚀 Faster feedback**: No waiting for outdated builds
+- **💰 Cost optimization**: Reduces unnecessary compute usage
+- **🔧 Developer experience**: Latest changes get priority
+- **🛡️ Release safety**: Main/master builds complete fully
+
 ## 🔧 Manual Controls
 
 ### Emergency Release
