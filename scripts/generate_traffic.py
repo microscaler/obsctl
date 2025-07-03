@@ -32,13 +32,16 @@ import json
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event, RLock
+from pathlib import Path
 
 # Import configuration from separate file
 from traffic_config import (
     TEMP_DIR, OBSCTL_BINARY, MINIO_ENDPOINT, SCRIPT_DURATION_HOURS, MAX_CONCURRENT_USERS,
     PEAK_VOLUME_MIN, PEAK_VOLUME_MAX, OFF_PEAK_VOLUME_MIN, OFF_PEAK_VOLUME_MAX,
     REGULAR_FILE_TTL, LARGE_FILE_TTL, LARGE_FILE_THRESHOLD,
-    USER_CONFIGS, FILE_EXTENSIONS, OBSCTL_ENV
+    USER_CONFIGS, FILE_EXTENSIONS, OBSCTL_ENV,
+    DISK_SPACE_CONFIG, HIGH_VOLUME_CONFIG, SUBFOLDER_TEMPLATES,
+    get_disk_free_space_gb, should_stop_generation, needs_emergency_cleanup
 )
 
 # Use imported configuration from traffic_config.py
@@ -57,31 +60,36 @@ for file_type, extensions in FILE_EXTENSIONS.items():
     if file_type == 'images':
         FILE_TYPES[file_type] = {
             'extensions': extensions,
-            'sizes': [(1024, 50*1024), (50*1024, 2*1024*1024), (2*1024*1024, 10*1024*1024)],
+            'sizes': [(1024, 500*1024), (500*1024, 5*1024*1024), (5*1024*1024, 20*1024*1024)],
+            'weights': [0.8, 0.15, 0.05],
             'weight': 0.25
         }
     elif file_type == 'documents':
         FILE_TYPES[file_type] = {
             'extensions': extensions,
-            'sizes': [(1024, 100*1024), (100*1024, 5*1024*1024), (5*1024*1024, 50*1024*1024)],
+            'sizes': [(1024, 100*1024), (100*1024, 2*1024*1024), (2*1024*1024, 10*1024*1024)],
+            'weights': [0.8, 0.15, 0.05],
             'weight': 0.20
         }
     elif file_type == 'code':
         FILE_TYPES[file_type] = {
             'extensions': extensions,
-            'sizes': [(100, 10*1024), (10*1024, 100*1024), (100*1024, 1024*1024)],
+            'sizes': [(100, 10*1024), (10*1024, 100*1024), (100*1024, 500*1024)],
+            'weights': [0.85, 0.12, 0.03],
             'weight': 0.15
         }
     elif file_type == 'archives':
         FILE_TYPES[file_type] = {
             'extensions': extensions,
-            'sizes': [(1024*1024, 50*1024*1024), (50*1024*1024, 500*1024*1024), (500*1024*1024, 2*1024*1024*1024)],
+            'sizes': [(100*1024, 5*1024*1024), (5*1024*1024, 50*1024*1024), (50*1024*1024, 200*1024*1024)],
+            'weights': [0.7, 0.25, 0.05],
             'weight': 0.15
         }
     elif file_type == 'media':
         FILE_TYPES[file_type] = {
             'extensions': extensions,
-            'sizes': [(1024*1024, 20*1024*1024), (20*1024*1024, 200*1024*1024), (200*1024*1024, 1024*1024*1024)],
+            'sizes': [(500*1024, 10*1024*1024), (10*1024*1024, 100*1024*1024), (100*1024*1024, 500*1024*1024)],
+            'weights': [0.75, 0.20, 0.05],
             'weight': 0.25
         }
 
@@ -217,12 +225,22 @@ class UserSimulator:
         self.logger = self.setup_user_logger()
         self.user_stopped = Event()  # 🔥 CRITICAL FIX: Individual user stop event
 
+        # 🚀 NEW: Subfolder management
+        self.subfolder_templates = SUBFOLDER_TEMPLATES.get(self.bucket, ['files'])
+        self.used_subfolders = set()
+        self.files_per_subfolder = {}
+
+        # 🚀 NEW: High-volume file tracking
+        self.total_files_created = 0
+        self.last_disk_check = 0
+
         # Initialize user stats if not already done
         with stats_lock:
             if user_id not in user_stats:
                 user_stats[user_id] = {
                     'operations': 0, 'uploads': 0, 'downloads': 0, 'errors': 0,
-                    'bytes_transferred': 0, 'files_created': 0, 'large_files': 0
+                    'bytes_transferred': 0, 'files_created': 0, 'large_files': 0,
+                    'subfolders_used': 0, 'disk_space_checks': 0
                 }
 
     def setup_user_logger(self):
@@ -235,6 +253,89 @@ class UserSimulator:
             logger.addHandler(handler)
             logger.setLevel(logging.INFO)
         return logger
+
+    def check_disk_space(self):
+        """🚀 NEW: Check disk space and return whether to continue"""
+        current_time = time.time()
+
+        # Only check every 30 seconds to avoid overhead
+        if current_time - self.last_disk_check < DISK_SPACE_CONFIG['check_interval_seconds']:
+            return True
+
+        self.last_disk_check = current_time
+        free_gb = get_disk_free_space_gb()
+
+        with stats_lock:
+            user_stats[self.user_id]['disk_space_checks'] += 1
+
+        if needs_emergency_cleanup():
+            self.logger.critical(f"EMERGENCY: Only {free_gb:.1f}GB free! Stopping immediately.")
+            return False
+        elif should_stop_generation():
+            self.logger.warning(f"LOW DISK SPACE: {free_gb:.1f}GB free. Stopping generation.")
+            return False
+        elif free_gb < 20:  # Warning threshold
+            self.logger.warning(f"DISK SPACE WARNING: {free_gb:.1f}GB free remaining.")
+
+        return True
+
+    def generate_subfolder_path(self):
+        """🚀 NEW: Generate realistic subfolder path based on templates"""
+        if not HIGH_VOLUME_CONFIG['use_subfolders']:
+            return ""
+
+        # Select a template
+        template = random.choice(self.subfolder_templates)
+
+        # Fill in template variables with realistic values
+        replacements = {
+            'project': random.choice(['web-app', 'mobile-client', 'api-service', 'data-pipeline', 'ml-model']),
+            'campaign': random.choice(['q1-launch', 'summer-sale', 'brand-refresh', 'product-demo', 'holiday-2024']),
+            'dataset': random.choice(['customer-data', 'sales-metrics', 'user-behavior', 'market-research', 'inventory']),
+            'model': random.choice(['recommendation', 'classification', 'clustering', 'regression', 'nlp-sentiment']),
+            'system': random.choice(['web-servers', 'databases', 'load-balancers', 'cache-cluster', 'api-gateway']),
+            'client': random.choice(['acme-corp', 'beta-tech', 'gamma-solutions', 'delta-industries', 'epsilon-labs']),
+            'app': random.choice(['ios-main', 'android-main', 'react-native', 'flutter-app', 'hybrid-app']),
+            'service': random.choice(['user-auth', 'payment-processor', 'notification-service', 'analytics-api', 'file-storage']),
+            'env': random.choice(['dev', 'staging', 'prod', 'test', 'demo']),
+            'platform': random.choice(['facebook', 'instagram', 'twitter', 'linkedin', 'youtube']),
+            'category': random.choice(['photos', 'videos', 'documents', 'templates', 'assets']),
+            'subcategory': random.choice(['high-res', 'thumbnails', 'originals', 'processed', 'archived']),
+            'region': random.choice(['north-america', 'europe', 'asia-pacific', 'latin-america', 'middle-east']),
+            'quarter': random.choice(['q1-2024', 'q2-2024', 'q3-2024', 'q4-2024']),
+            'year': random.choice(['2023', '2024', '2025']),
+            'month': random.choice(['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12']),
+            'day': f"{random.randint(1, 28):02d}",
+            'week': f"{random.randint(1, 52):02d}",
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'topic': random.choice(['machine-learning', 'data-analysis', 'user-research', 'market-trends', 'security']),
+            'study': random.choice(['user-behavior', 'performance-analysis', 'ab-testing', 'market-research', 'usability']),
+            'partner': random.choice(['university-x', 'research-institute', 'tech-company', 'startup-incubator', 'consulting-firm']),
+            'version': f"v{random.randint(1, 10)}.{random.randint(0, 9)}.{random.randint(0, 9)}",
+            'experiment_id': f"exp-{random.randint(1000, 9999)}"
+        }
+
+        # Replace placeholders in template
+        path = template
+        for key, value in replacements.items():
+            path = path.replace(f'{{{key}}}', value)
+
+        # Track subfolder usage
+        if path not in self.used_subfolders:
+            self.used_subfolders.add(path)
+            self.files_per_subfolder[path] = 0
+            with stats_lock:
+                user_stats[self.user_id]['subfolders_used'] += 1
+
+        # Check if we should create a new subfolder (limit files per subfolder)
+        if self.files_per_subfolder[path] >= HIGH_VOLUME_CONFIG['files_per_subfolder']:
+            # Try to generate a new path
+            for _ in range(3):  # Max 3 attempts
+                new_path = self.generate_subfolder_path()
+                if new_path != path and self.files_per_subfolder.get(new_path, 0) < HIGH_VOLUME_CONFIG['files_per_subfolder']:
+                    return new_path
+
+        return path
 
     def get_current_activity_level(self):
         """Calculate current activity level based on user's timezone and peak hours"""
@@ -251,22 +352,25 @@ class UserSimulator:
 
         base_activity = self.user_config['activity_multiplier']
 
-        # TEMPORARY: Force high activity for testing high-volume traffic
-        # Override peak detection for testing - force 70% of users into peak mode
-        if hash(self.user_id) % 10 < 7:  # 70% of users get forced peak activity
-            activity_level = base_activity * 3.0  # Triple activity for testing
-            self.logger.debug(f"FORCED PEAK: user_hour={user_hour}, activity={activity_level:.1f}")
+        # 🚀 ENHANCED: High-volume generation with disk space awareness
+        if not self.check_disk_space():
+            return 0  # Stop activity if disk space is low
+
+        # Force high activity for high-volume testing
+        if hash(self.user_id) % 10 < 8:  # 80% of users get forced peak activity
+            activity_level = base_activity * 4.0  # Quadruple activity for testing
+            self.logger.debug(f"HIGH-VOLUME MODE: user_hour={user_hour}, activity={activity_level:.1f}")
         elif is_peak:
-            activity_level = base_activity * 2.0  # Double activity during peak hours
+            activity_level = base_activity * 2.5  # High activity during peak hours
             self.logger.debug(f"NATURAL PEAK: user_hour={user_hour}, activity={activity_level:.1f}")
         else:
-            activity_level = base_activity * 0.3  # Reduced activity during off hours
+            activity_level = base_activity * 0.5  # Reduced activity during off hours
             self.logger.debug(f"OFF PEAK: user_hour={user_hour}, activity={activity_level:.1f}")
 
         return activity_level
 
-    def select_file_type(self):
-        """Select file type based on user preferences"""
+    def select_file_type_and_size(self):
+        """🚀 ENHANCED: Select file type and size using weighted distributions"""
         file_preferences = self.user_config['file_preferences']
 
         # Use weighted random selection based on user preferences
@@ -274,6 +378,27 @@ class UserSimulator:
         weights = list(file_preferences.values())
         file_type = random.choices(file_types, weights=weights)[0]
 
+        # Get file type configuration
+        file_config = FILE_TYPES[file_type]
+
+        # Select size range using weights (80% small files for high object count)
+        size_ranges = file_config['sizes']
+        size_weights = file_config.get('weights', [1.0] * len(size_ranges))
+
+        # Apply small file bias from HIGH_VOLUME_CONFIG
+        if HIGH_VOLUME_CONFIG['small_file_bias'] > 0:
+            # Boost weight of smallest size range
+            size_weights = list(size_weights)
+            size_weights[0] *= (1 + HIGH_VOLUME_CONFIG['small_file_bias'])
+
+        selected_range = random.choices(size_ranges, weights=size_weights)[0]
+        size_bytes = random.randint(selected_range[0], selected_range[1])
+
+        return file_type, size_bytes
+
+    def select_file_type(self):
+        """Legacy method for compatibility"""
+        file_type, _ = self.select_file_type_and_size()
         return file_type
 
     def generate_file(self, file_type, size_bytes, filename):
@@ -382,12 +507,20 @@ class UserSimulator:
 
     def upload_operation(self):
         """Perform upload operation - RACE CONDITION PROTECTED"""
-        file_type = self.select_file_type()
+        # 🚀 ENHANCED: Check if we should stop due to target reached or disk space
+        if self.total_files_created >= HIGH_VOLUME_CONFIG['target_files_per_bucket']:
+            self.logger.info(f"Target of {HIGH_VOLUME_CONFIG['target_files_per_bucket']} files reached. Slowing down.")
+            return True  # Continue but at reduced rate
+
+        if not self.check_disk_space():
+            self.logger.warning("Stopping upload due to low disk space.")
+            return False
+
+        file_type, size_bytes = self.select_file_type_and_size()
         extension = random.choice(FILE_TYPES[file_type]['extensions'])
 
-        # Select size range and generate size
-        size_range = random.choice(FILE_TYPES[file_type]['sizes'])
-        size_bytes = random.randint(size_range[0], size_range[1])
+        # 🚀 NEW: Generate subfolder path
+        subfolder_path = self.generate_subfolder_path()
 
         timestamp = int(time.time())
         filename = f"{self.user_id}_{file_type}_{timestamp}{extension}"
@@ -404,11 +537,21 @@ class UserSimulator:
         register_operation(local_path, 'upload', self.user_id)
 
         try:
-            # Upload to user's bucket
-            s3_path = f"s3://{self.bucket}/{filename}"
+            # 🚀 NEW: Upload to subfolder path in user's bucket
+            if subfolder_path:
+                s3_path = f"s3://{self.bucket}/{subfolder_path}/{filename}"
+            else:
+                s3_path = f"s3://{self.bucket}/{filename}"
+
             success = self.run_obsctl_command(['cp', local_path, s3_path])
 
             if success:
+                # 🚀 NEW: Track files per subfolder
+                if subfolder_path:
+                    self.files_per_subfolder[subfolder_path] = self.files_per_subfolder.get(subfolder_path, 0) + 1
+
+                self.total_files_created += 1
+
                 with stats_lock:
                     global_stats['uploads'] += 1
                     global_stats['operations'] += 1
@@ -418,7 +561,12 @@ class UserSimulator:
                     user_stats[self.user_id]['bytes_transferred'] += size_bytes
 
                 self.apply_ttl_policy(local_path, size_bytes)
-                self.logger.info(f"Uploaded {filename} ({size_bytes} bytes)")
+
+                # 🚀 ENHANCED: Better logging with subfolder info
+                if subfolder_path:
+                    self.logger.info(f"Uploaded {subfolder_path}/{filename} ({size_bytes} bytes) [Total: {self.total_files_created}]")
+                else:
+                    self.logger.info(f"Uploaded {filename} ({size_bytes} bytes) [Total: {self.total_files_created}]")
 
         finally:
             # 🔥 CRITICAL FIX: Always unregister and cleanup, but check if file still exists
@@ -714,32 +862,66 @@ class ConcurrentTrafficGenerator:
         self.logger.info(f"Environment setup complete for {len(USERS)} concurrent users")
 
     def print_stats(self):
-        """Print current statistics"""
-        self.logger.info("=== CONCURRENT TRAFFIC GENERATOR STATISTICS ===")
-        self.logger.info("GLOBAL STATS:")
-        with stats_lock:
-            self.logger.info(f"  Total Operations: {global_stats['operations']}")
-            self.logger.info(f"  Uploads: {global_stats['uploads']}")
-            self.logger.info(f"  Downloads: {global_stats['downloads']}")
-            self.logger.info(f"  Errors: {global_stats['errors']}")
-            self.logger.info(f"  Files Created: {global_stats['files_created']}")
-            self.logger.info(f"  Large Files Created: {global_stats['large_files_created']}")
-            self.logger.info(f"  TTL Policies Applied: {global_stats['ttl_policies_applied']}")
-            self.logger.info(f"  Bytes Transferred: {global_stats['bytes_transferred']:,}")
+        """Print comprehensive statistics including disk space monitoring"""
+        # 🚀 NEW: Get current disk space
+        free_gb = get_disk_free_space_gb()
 
-            self.logger.info("\nPER-USER STATS:")
+        self.logger.info("🚀 HIGH-VOLUME TRAFFIC GENERATOR STATISTICS")
+        self.logger.info("=" * 60)
+
+        with stats_lock:
+            # Global stats
+            self.logger.info("📊 GLOBAL OPERATIONS:")
+            self.logger.info(f"  Total Operations: {global_stats['operations']:,}")
+            self.logger.info(f"  Uploads: {global_stats['uploads']:,}")
+            self.logger.info(f"  Downloads: {global_stats['downloads']:,}")
+            self.logger.info(f"  Errors: {global_stats['errors']:,}")
+            self.logger.info(f"  Files Created: {global_stats['files_created']:,}")
+            self.logger.info(f"  Large Files Created: {global_stats['large_files_created']:,}")
+            self.logger.info(f"  TTL Policies Applied: {global_stats['ttl_policies_applied']:,}")
+
+            # Format bytes transferred
+            bytes_transferred = global_stats['bytes_transferred']
+            if bytes_transferred > 1024**3:
+                size_str = f"{bytes_transferred / (1024**3):.2f} GB"
+            elif bytes_transferred > 1024**2:
+                size_str = f"{bytes_transferred / (1024**2):.2f} MB"
+            else:
+                size_str = f"{bytes_transferred / 1024:.2f} KB"
+            self.logger.info(f"  Data Transferred: {size_str}")
+
+            # 🚀 NEW: Disk space monitoring
+            self.logger.info("\n💽 DISK SPACE MONITORING:")
+            self.logger.info(f"  Free Space: {free_gb:.1f} GB")
+            if free_gb <= DISK_SPACE_CONFIG['stop_threshold_gb']:
+                self.logger.warning(f"  ⚠️  CRITICAL: Below {DISK_SPACE_CONFIG['stop_threshold_gb']}GB threshold!")
+            elif free_gb < 20:
+                self.logger.warning(f"  ⚠️  WARNING: Low disk space")
+            else:
+                self.logger.info(f"  ✅ OK: Above safety threshold")
+
+            # 🚀 NEW: High-volume progress tracking
+            total_target = HIGH_VOLUME_CONFIG['target_files_per_bucket'] * len(USER_CONFIGS)
+            current_total = sum(stats['files_created'] for stats in user_stats.values())
+            progress_pct = (current_total / total_target) * 100 if total_target > 0 else 0
+
+            self.logger.info("\n🎯 HIGH-VOLUME PROGRESS:")
+            self.logger.info(f"  Target: {total_target:,} files across all buckets")
+            self.logger.info(f"  Current: {current_total:,} files ({progress_pct:.1f}%)")
+            self.logger.info(f"  Remaining: {max(0, total_target - current_total):,} files")
+
+            self.logger.info("\n👥 PER-USER STATISTICS:")
             for user_id, stats in user_stats.items():
                 user_config = USERS[user_id]
-                self.logger.info(f"  {user_id} ({user_config['description']}):")
-                self.logger.info(f"    Operations: {stats['operations']}")
-                self.logger.info(f"    Uploads: {stats['uploads']}")
-                self.logger.info(f"    Downloads: {stats['downloads']}")
-                self.logger.info(f"    Errors: {stats['errors']}")
-                self.logger.info(f"    Files Created: {stats['files_created']}")
-                self.logger.info(f"    Large Files: {stats['large_files']}")
-                self.logger.info(f"    Bytes Transferred: {stats['bytes_transferred']:,}")
+                total_files = stats['files_created']
+                subfolders = stats.get('subfolders_used', 0)
+                disk_checks = stats.get('disk_space_checks', 0)
 
-        self.logger.info("===============================================")
+                self.logger.info(f"  {user_id:15} | Files: {total_files:4,} | Subfolders: {subfolders:3} |")
+                self.logger.info(f"    Ops: {stats['operations']:4,} | Errors: {stats['errors']:2} | Disk Checks: {disk_checks:2}")
+                self.logger.info(f"    Bytes: {stats['bytes_transferred']:,}")
+
+        self.logger.info("=" * 60)
 
     def run(self):
         """Main traffic generation loop with concurrent users - GRACEFUL SHUTDOWN"""

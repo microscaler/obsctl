@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 #[cfg(target_os = "linux")]
 use sd_notify::NotifyState;
+use std::io::{self, Write};
 
 use obsctl::args::Args;
 use obsctl::commands::execute_command;
@@ -9,8 +10,43 @@ use obsctl::config::Config;
 use obsctl::logging::init_logging;
 use obsctl::otel;
 
+/// Set up broken pipe handling to prevent panics when output is piped to commands like `head`
+fn setup_broken_pipe_handling() {
+    // Set a custom panic hook that handles broken pipe errors gracefully
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // Check if this is a broken pipe error
+        if let Some(payload) = panic_info.payload().downcast_ref::<String>() {
+            if payload.contains("Broken pipe") || payload.contains("os error 32") {
+                // Broken pipe - just exit gracefully without showing panic
+                std::process::exit(0);
+            }
+        }
+
+        // For any other panic, use the original handler
+        original_hook(panic_info);
+    }));
+
+    // Also handle SIGPIPE signals on Unix systems
+    #[cfg(unix)]
+    {
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
+    }
+}
+
+/// Flush output streams before exit to ensure all data is written
+fn flush_output() {
+    let _ = io::stdout().flush();
+    let _ = io::stderr().flush();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Set up broken pipe handling before any output
+    setup_broken_pipe_handling();
+
     let args = Args::parse();
 
     // Initialize logging
@@ -26,7 +62,7 @@ async fn main() -> Result<()> {
     sd_notify::notify(true, &[NotifyState::Ready]).ok();
 
     // Execute the appropriate command
-    execute_command(&args, &config).await?;
+    let result = execute_command(&args, &config).await;
 
     // Shutdown OpenTelemetry
     otel::shutdown_tracing();
@@ -34,7 +70,10 @@ async fn main() -> Result<()> {
     #[cfg(target_os = "linux")]
     sd_notify::notify(true, &[NotifyState::Stopping]).ok();
 
-    Ok(())
+    // Flush output before exit
+    flush_output();
+
+    result
 }
 
 #[cfg(test)]

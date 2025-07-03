@@ -1936,6 +1936,7 @@ dependencies = [
  "glob",
  "indicatif",
  "lazy_static",
+ "libc",
  "log",
  "md5",
  "opentelemetry",
