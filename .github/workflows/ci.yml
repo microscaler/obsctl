@@ -1,16 +1,19 @@
 name: CI
 
 on:
-  push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
+  workflow_call:
+  workflow_dispatch:
+
+# Concurrency is handled by the parent workflow when called via workflow_call
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.workflow, github.ref) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Pre-commit hooks validation (runs first)
+  # Pre-commit hooks validation (runs first) - READ ONLY MODE
   pre-commit:
     name: Pre-commit Hooks
     runs-on: ubuntu-latest
@@ -35,15 +38,15 @@ jobs:
       run: pip install pre-commit
 
     - name: Cache pre-commit
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pre-commit
         key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
-    - name: Run pre-commit hooks
+    - name: Run pre-commit hooks (check-only mode)
       run: |
-        # Skip heavy operations in CI
-        SKIP=cargo-test,cargo-audit pre-commit run --all-files
+        # Skip file-modifying hooks in CI, run only validation
+        SKIP=trailing-whitespace,end-of-file-fixer pre-commit run --all-files
 
   # Test on multiple platforms
   test:
@@ -63,7 +66,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache Cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -82,28 +85,51 @@ jobs:
     - name: Check formatting
       run: cargo fmt -- --check
 
-  # Build test for cross-compilation targets
+  # Build test for cross-compilation targets - COMPREHENSIVE PLATFORM SUPPORT
   build-test:
-    name: Build Test ${{ matrix.target }}
+    name: Build Test ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          # Linux builds (AMD64, ARM64, ARMv7)
+          - platform: linux-amd64
+            target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
+            native: true
+          - platform: linux-arm64
+            target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - target: armv7-unknown-linux-gnueabihf
+            cross: true
+          - platform: linux-armv7
+            target: armv7-unknown-linux-gnueabihf
             os: ubuntu-latest
-          - target: x86_64-pc-windows-gnu
-            os: ubuntu-latest
-          - target: x86_64-apple-darwin
+            cross: true
+
+          # macOS builds (Intel, Apple Silicon)
+          - platform: macos-amd64
+            target: x86_64-apple-darwin
             os: macos-latest
-          - target: aarch64-apple-darwin
+            native: true
+          - platform: macos-arm64
+            target: aarch64-apple-darwin
             os: macos-latest
-          - target: x86_64-pc-windows-gnu
-            os: windows-latest
+            native: true
+
+          # Windows builds (AMD64, ARM64, ARMv7)
+          - platform: windows-amd64
+            target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            cross: true
+          - platform: windows-arm64
+            target: aarch64-pc-windows-gnullvm
+            os: ubuntu-latest
+            cross: true
+          - platform: windows-armv7
+            target: armv7-pc-windows-gnueabi
+            os: ubuntu-latest
+            cross: true
 
     steps:
     - name: Checkout code
@@ -111,22 +137,64 @@ jobs:
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
+
+    - name: Install target
+      run: rustup target add ${{ matrix.target }}
 
     - name: Install cross-compilation tools
-      if: matrix.os == 'ubuntu-latest' && matrix.target != 'x86_64-unknown-linux-gnu'
+      if: matrix.cross == true
       run: |
         cargo install cross --git https://github.com/cross-rs/cross
 
+    - name: Install native dependencies (cross-compilation)
+      if: matrix.cross == true
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-arm-linux-gnueabihf \
+          gcc-aarch64-linux-gnu \
+          mingw-w64 \
+          gcc-mingw-w64-x86-64 \
+          gcc-mingw-w64-i686 \
+          cmake \
+          pkg-config \
+          clang \
+          llvm
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ci-${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ci-${{ runner.os }}-${{ matrix.target }}-cargo-
+          ci-${{ runner.os }}-cargo-
+
     - name: Build for target
       run: |
-        if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.target }}" != "x86_64-unknown-linux-gnu" ]; then
-          cross build --target ${{ matrix.target }}
+        if [ "${{ matrix.cross }}" = "true" ]; then
+          echo "🔧 Cross-compiling for ${{ matrix.target }} on ${{ matrix.platform }}"
+          cross build --target ${{ matrix.target }} --release
         else
-          cargo build --target ${{ matrix.target }}
+          echo "🏗️ Native build for ${{ matrix.target }} on ${{ matrix.platform }}"
+          cargo build --target ${{ matrix.target }} --release
         fi
+
+        echo "📦 Build completed for platform: ${{ matrix.platform }}"
+        echo "🎯 Target: ${{ matrix.target }}"
+        ls -la target/${{ matrix.target }}/release/
       shell: bash
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: obsctl-ci-${{ matrix.platform }}
+        path: |
+          target/${{ matrix.target }}/release/obsctl*
+          !target/${{ matrix.target }}/release/obsctl.d
 
   # Security audit
   security:
@@ -162,14 +230,14 @@ jobs:
           echo "✗ Chocolatey nuspec template missing"
           exit 1
         fi
-        
+
         if [ -f "packaging/chocolatey/chocolateyinstall.ps1.template" ]; then
           echo "✓ Chocolatey install template found"
         else
           echo "✗ Chocolatey install template missing"
           exit 1
         fi
-        
+
         if [ -f "packaging/chocolatey/chocolateyuninstall.ps1.template" ]; then
           echo "✓ Chocolatey uninstall template found"
         else
@@ -196,7 +264,7 @@ jobs:
           echo "✗ Debian control file missing"
           exit 1
         fi
-        
+
         if [ -f "packaging/debian/postinst" ]; then
           echo "✓ Debian postinst script found"
         else
@@ -213,7 +281,7 @@ jobs:
           echo "✗ Man page missing"
           exit 1
         fi
-        
+
         if [ -f "packaging/obsctl.bash-completion" ]; then
           echo "✓ Bash completion found"
         else
@@ -255,13 +323,13 @@ jobs:
       run: |
         # Test help command
         ./target/release/obsctl --help
-        
+
         # Test version command
         ./target/release/obsctl --version
-        
+
         # Test config help
         ./target/release/obsctl config --help
-        
+
         # Test dashboard help
         ./target/release/obsctl config dashboard --help
 
@@ -298,14 +366,14 @@ jobs:
     - name: Check documentation consistency
       run: |
         echo "Checking documentation consistency..."
-        
+
         # Check if Chocolatey is mentioned in README
         if grep -q -i "chocolatey\|choco" README.md; then
           echo "✓ Chocolatey installation mentioned in README"
         else
           echo "⚠ Chocolatey installation not mentioned in README"
         fi
-        
+
         # Check if Homebrew is mentioned
         if grep -q -i "homebrew\|brew" README.md; then
           echo "✓ Homebrew installation mentioned in README"

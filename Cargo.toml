@@ -11,10 +11,13 @@ keywords = ["s3", "cloud", "storage", "cli", "observability"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+# AWS SDK with cross-compilation features
 aws-config = "1.1.1"
 aws-sdk-s3 = "1.13.0"
 aws-smithy-types = "1.1.1"
 aws-types = "1.1.1"
+
+# CLI and utilities
 clap = { version = "4.4", features = ["derive"] }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
@@ -26,10 +29,14 @@ indicatif = "0.17"
 lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
+
+# OpenTelemetry observability
 opentelemetry = { version = "0.30", features = ["metrics", "trace"] }
 opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "metrics", "trace"] }
 opentelemetry_sdk = { version = "0.30", features = ["metrics", "trace"] }
 opentelemetry-semantic-conventions = "0.30"
+
+# Core utilities
 regex = "1.10"
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
@@ -45,6 +52,7 @@ base64 = "0.21"
 md5 = "0.7"
 walkdir = "2.3"
 thiserror = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 systemd-journal-logger = "2"
@@ -54,3 +62,23 @@ sd-notify = "0.4"
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tempfile = "3.8"
+
+# Cross-compilation configuration
+[target.'cfg(target_arch = "arm")'.dependencies]
+# ARM-specific optimizations if needed
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+# ARM64-specific optimizations if needed
+
+# Build configuration for cross-compilation
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Ensure proper features for cross-compilation
+[features]
+default = ["native-tls"]
+native-tls = []
+rustls = ["reqwest/rustls-tls"]

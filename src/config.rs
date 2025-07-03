@@ -15,6 +15,7 @@ pub struct OtelConfig {
     pub endpoint: Option<String>,
     pub service_name: String,
     pub service_version: String,
+    pub read_operations: bool,
 }
 
 impl Default for OtelConfig {
@@ -24,13 +25,64 @@ impl Default for OtelConfig {
             endpoint: None,
             service_name: "obsctl".to_string(),
             service_version: env!("CARGO_PKG_VERSION").to_string(),
+            read_operations: false,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LokiConfig {
+    pub enabled: bool,
+    pub endpoint: Option<String>,
+    pub labels: HashMap<String, String>,
+    pub log_level: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct JaegerConfig {
+    pub enabled: bool,
+    pub endpoint: Option<String>,
+    pub service_name: String,
+    pub service_version: String,
+    pub sampling_ratio: f64,
+}
+
+impl Default for LokiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: Some("http://localhost:3100".to_string()),
+            labels: HashMap::new(),
+            log_level: "info".to_string(),
+        }
+    }
+}
+
+impl Default for JaegerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: Some("http://localhost:14268".to_string()),
+            service_name: "obsctl".to_string(),
+            service_version: env!("CARGO_PKG_VERSION").to_string(),
+            sampling_ratio: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ObsctlConfig {
+    pub otel: OtelConfig,
+    pub loki: LokiConfig,
+    pub jaeger: JaegerConfig,
+    pub profiles: HashMap<String, String>,
 }
 
 pub struct Config {
     pub client: Arc<Client>,
     pub otel: OtelConfig,
+    pub loki: LokiConfig,
+    pub jaeger: JaegerConfig,
 }
 
 impl Config {
@@ -80,7 +132,18 @@ impl Config {
         // Configure OTEL from config file and environment
         let otel = configure_otel(&aws_config)?;
 
-        Ok(Config { client, otel })
+        // Configure Loki from config file and environment
+        let loki = configure_loki(&aws_config)?;
+
+        // Configure Jaeger from config file and environment
+        let jaeger = configure_jaeger(&aws_config)?;
+
+        Ok(Config {
+            client,
+            otel,
+            loki,
+            jaeger,
+        })
     }
 }
 
@@ -238,30 +301,31 @@ fn setup_aws_environment(
 fn configure_otel(aws_config: &HashMap<String, HashMap<String, String>>) -> Result<OtelConfig> {
     let mut otel_config = OtelConfig::default();
 
-    // First, check for dedicated ~/.aws/otel file
-    let aws_dir = get_aws_config_dir()?;
-    let otel_file = aws_dir.join("otel");
+    // First, check for dedicated ~/.obsctl/otel file
+    if let Ok(obsctl_dir) = get_obsctl_config_dir() {
+        let otel_file = obsctl_dir.join("otel");
 
-    if otel_file.exists() {
-        let otel_content = fs::read_to_string(&otel_file)?;
-        let mut otel_file_config = HashMap::new();
-        parse_aws_config_file(&otel_content, &mut otel_file_config)?;
+        if otel_file.exists() {
+            let otel_content = fs::read_to_string(&otel_file)?;
+            let mut otel_file_config = HashMap::new();
+            parse_aws_config_file(&otel_content, &mut otel_file_config)?;
 
-        // If we have a valid otel file with [otel] section, enable by default
-        if let Some(otel_section) = otel_file_config.get("otel") {
-            otel_config.enabled = true; // Default to enabled if otel file exists
+            // If we have a valid otel file with [otel] section, enable by default
+            if let Some(otel_section) = otel_file_config.get("otel") {
+                otel_config.enabled = true; // Default to enabled if otel file exists
 
-            // Read settings from otel file
-            if let Some(enabled_str) = otel_section.get("enabled") {
-                otel_config.enabled = enabled_str.to_lowercase() == "true";
-            }
+                // Read settings from otel file
+                if let Some(enabled_str) = otel_section.get("enabled") {
+                    otel_config.enabled = enabled_str.to_lowercase() == "true";
+                }
 
-            if let Some(endpoint) = otel_section.get("endpoint") {
-                otel_config.endpoint = Some(endpoint.clone());
-            }
+                if let Some(endpoint) = otel_section.get("endpoint") {
+                    otel_config.endpoint = Some(endpoint.clone());
+                }
 
-            if let Some(service_name) = otel_section.get("service_name") {
-                otel_config.service_name = service_name.clone();
+                if let Some(service_name) = otel_section.get("service_name") {
+                    otel_config.service_name = service_name.clone();
+                }
             }
         }
     }
@@ -301,6 +365,157 @@ fn configure_otel(aws_config: &HashMap<String, HashMap<String, String>>) -> Resu
     }
 
     Ok(otel_config)
+}
+
+/// Configure Loki from ~/.obsctl/loki file and environment
+fn configure_loki(_aws_config: &HashMap<String, HashMap<String, String>>) -> Result<LokiConfig> {
+    let mut loki_config = LokiConfig::default();
+
+    // Check for dedicated ~/.obsctl/loki file
+    if let Ok(obsctl_dir) = get_obsctl_config_dir() {
+        let loki_file = obsctl_dir.join("loki");
+
+        if loki_file.exists() {
+            let loki_content = fs::read_to_string(&loki_file)?;
+            let mut loki_file_config = HashMap::new();
+            parse_aws_config_file(&loki_content, &mut loki_file_config)?;
+
+            // If we have a valid loki file with [loki] section, enable by default
+            if let Some(loki_section) = loki_file_config.get("loki") {
+                loki_config.enabled = true; // Default to enabled if loki file exists
+
+                // Read settings from loki file
+                if let Some(enabled_str) = loki_section.get("enabled") {
+                    loki_config.enabled = enabled_str.to_lowercase() == "true";
+                }
+
+                if let Some(endpoint) = loki_section.get("endpoint") {
+                    loki_config.endpoint = Some(endpoint.clone());
+                }
+
+                if let Some(log_level) = loki_section.get("log_level") {
+                    loki_config.log_level = log_level.clone();
+                }
+
+                // Parse labels
+                for (key, value) in loki_section {
+                    if key.starts_with("label_") {
+                        let label_name = key.strip_prefix("label_").unwrap();
+                        loki_config
+                            .labels
+                            .insert(label_name.to_string(), value.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Environment variables override everything
+    if let Ok(enabled_str) = std::env::var("LOKI_ENABLED") {
+        loki_config.enabled = enabled_str.to_lowercase() == "true";
+    }
+
+    if let Ok(endpoint) = std::env::var("LOKI_ENDPOINT") {
+        loki_config.endpoint = Some(endpoint);
+    }
+
+    if let Ok(log_level) = std::env::var("LOKI_LOG_LEVEL") {
+        loki_config.log_level = log_level;
+    }
+
+    Ok(loki_config)
+}
+
+/// Configure Jaeger from ~/.obsctl/jaeger file and environment
+fn configure_jaeger(
+    _aws_config: &HashMap<String, HashMap<String, String>>,
+) -> Result<JaegerConfig> {
+    let mut jaeger_config = JaegerConfig::default();
+
+    // Check for dedicated ~/.obsctl/jaeger file
+    if let Ok(obsctl_dir) = get_obsctl_config_dir() {
+        let jaeger_file = obsctl_dir.join("jaeger");
+
+        if jaeger_file.exists() {
+            let jaeger_content = fs::read_to_string(&jaeger_file)?;
+            let mut jaeger_file_config = HashMap::new();
+            parse_aws_config_file(&jaeger_content, &mut jaeger_file_config)?;
+
+            // If we have a valid jaeger file with [jaeger] section, enable by default
+            if let Some(jaeger_section) = jaeger_file_config.get("jaeger") {
+                jaeger_config.enabled = true; // Default to enabled if jaeger file exists
+
+                // Read settings from jaeger file
+                if let Some(enabled_str) = jaeger_section.get("enabled") {
+                    jaeger_config.enabled = enabled_str.to_lowercase() == "true";
+                }
+
+                if let Some(endpoint) = jaeger_section.get("endpoint") {
+                    jaeger_config.endpoint = Some(endpoint.clone());
+                }
+
+                if let Some(service_name) = jaeger_section.get("service_name") {
+                    jaeger_config.service_name = service_name.clone();
+                }
+
+                if let Some(service_version) = jaeger_section.get("service_version") {
+                    jaeger_config.service_version = service_version.clone();
+                }
+
+                if let Some(sampling_ratio) = jaeger_section.get("sampling_ratio") {
+                    if let Ok(ratio) = sampling_ratio.parse::<f64>() {
+                        jaeger_config.sampling_ratio = ratio;
+                    }
+                }
+            }
+        }
+    }
+
+    // Environment variables override everything
+    if let Ok(enabled_str) = std::env::var("JAEGER_ENABLED") {
+        jaeger_config.enabled = enabled_str.to_lowercase() == "true";
+    }
+
+    if let Ok(endpoint) = std::env::var("JAEGER_ENDPOINT") {
+        jaeger_config.endpoint = Some(endpoint);
+    }
+
+    if let Ok(service_name) = std::env::var("JAEGER_SERVICE_NAME") {
+        jaeger_config.service_name = service_name;
+    }
+
+    if let Ok(sampling_ratio) = std::env::var("JAEGER_SAMPLING_RATIO") {
+        if let Ok(ratio) = sampling_ratio.parse::<f64>() {
+            jaeger_config.sampling_ratio = ratio;
+        }
+    }
+
+    Ok(jaeger_config)
+}
+
+/// Get the obsctl configuration directory path (~/.obsctl)
+fn get_obsctl_config_dir() -> Result<PathBuf> {
+    if let Ok(home) = std::env::var("HOME") {
+        let obsctl_dir = PathBuf::from(home).join(".obsctl");
+        // Create directory if it doesn't exist
+        if !obsctl_dir.exists() {
+            fs::create_dir_all(&obsctl_dir)?;
+        }
+        return Ok(obsctl_dir);
+    }
+
+    #[cfg(windows)]
+    {
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let obsctl_dir = PathBuf::from(userprofile).join(".obsctl");
+            if !obsctl_dir.exists() {
+                fs::create_dir_all(&obsctl_dir)?;
+            }
+            return Ok(obsctl_dir);
+        }
+    }
+
+    anyhow::bail!("Could not determine obsctl config directory");
 }
 
 #[cfg(test)]

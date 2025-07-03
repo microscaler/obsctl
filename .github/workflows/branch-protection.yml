@@ -1,0 +1,121 @@
+name: Configure Branch Protection
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to protect'
+        required: true
+        default: 'main'
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  configure-protection:
+    name: Configure Branch Protection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure branch protection rules
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = '${{ github.event.inputs.branch }}';
+
+            console.log(`Configuring branch protection for: ${branch}`);
+
+            const protection = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: branch,
+              required_status_checks: {
+                strict: true,
+                checks: [
+                  { context: 'Workflow Controller' },
+                  { context: 'Conventional Commits Validation' },
+                  { context: 'Continuous Integration' },
+                  { context: 'CodeQL Analysis (rust)' },
+                  { context: 'Security Audit' }
+                ]
+              },
+              enforce_admins: false, // Allow admins to bypass for emergency fixes
+              required_pull_request_reviews: {
+                required_approving_review_count: 1,
+                dismiss_stale_reviews: true,
+                require_code_owner_reviews: true,
+                require_last_push_approval: false, // Allow auto-merge for Dependabot
+                bypass_pull_request_allowances: {
+                  users: [],
+                  teams: [],
+                  apps: ['dependabot'] // Allow Dependabot to bypass review requirements
+                }
+              },
+              restrictions: null, // No push restrictions
+              required_linear_history: false,
+              allow_force_pushes: false,
+              allow_deletions: false,
+              block_creations: false,
+              required_conversation_resolution: true,
+              lock_branch: false,
+              allow_fork_syncing: true
+            };
+
+            try {
+              await github.rest.repos.updateBranchProtection(protection);
+              console.log('✅ Branch protection configured successfully');
+
+              // Configure auto-merge settings
+              console.log('🤖 Configuring auto-merge settings...');
+
+              // Enable auto-merge for the repository
+              await github.rest.repos.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                allow_auto_merge: true,
+                allow_merge_commit: false,
+                allow_squash_merge: true,
+                allow_rebase_merge: false,
+                delete_branch_on_merge: true,
+                squash_merge_commit_title: 'PR_TITLE',
+                squash_merge_commit_message: 'PR_BODY'
+              });
+
+              console.log('✅ Auto-merge settings configured');
+
+            } catch (error) {
+              console.error('❌ Failed to configure branch protection:', error);
+              throw error;
+            }
+
+      - name: Summary
+        run: |
+          echo "🛡️ Branch Protection Configuration Summary"
+          echo "========================================"
+          echo "Branch: ${{ github.event.inputs.branch }}"
+          echo ""
+          echo "✅ Required status checks:"
+          echo "  - Workflow Controller"
+          echo "  - Conventional Commits Validation"
+          echo "  - Continuous Integration"
+          echo "  - CodeQL Analysis"
+          echo "  - Security Audit"
+          echo ""
+          echo "✅ Pull request requirements:"
+          echo "  - 1 approving review required"
+          echo "  - Dismiss stale reviews: enabled"
+          echo "  - Code owner reviews: required"
+          echo "  - Dependabot bypass: enabled"
+          echo ""
+          echo "✅ Auto-merge settings:"
+          echo "  - Auto-merge: enabled"
+          echo "  - Squash merge: enabled"
+          echo "  - Delete branch on merge: enabled"
+          echo ""
+          echo "🤖 Dependabot PRs will auto-merge when:"
+          echo "  - All status checks pass"
+          echo "  - Update type is eligible (patch/minor)"
+          echo "  - No manual intervention required"

@@ -134,7 +134,7 @@ async fn configure_interactive(profile: &str) -> Result<()> {
 async fn set_config_value(key: &str, value: &str, profile: &str) -> Result<()> {
     let profile_name = profile;
 
-    // Determine if this is a credential or config value
+    // Determine if this is a credential, obsctl-specific, or AWS config value
     if is_credential_key(key) {
         set_credential_value(key, value, profile_name).await?;
         println!(
@@ -143,11 +143,19 @@ async fn set_config_value(key: &str, value: &str, profile: &str) -> Result<()> {
             key.cyan(),
             value.yellow()
         );
+    } else if is_obsctl_key(key) {
+        set_obsctl_config_value(key, value).await?;
+        println!(
+            "{} {} = {}",
+            "✅ Set obsctl config:".green(),
+            key.cyan(),
+            value.yellow()
+        );
     } else {
         set_config_file_value(key, value, profile_name).await?;
         println!(
             "{} {} = {}",
-            "✅ Set config:".green(),
+            "✅ Set AWS config:".green(),
             key.cyan(),
             value.yellow()
         );
@@ -163,6 +171,8 @@ async fn get_config_value(key: &str, profile: &str) -> Result<()> {
     let value = if is_credential_key(key) {
         let credentials = load_credentials_for_profile(profile_name)?;
         credentials.get(key).cloned()
+    } else if is_obsctl_key(key) {
+        get_obsctl_config_value(key)?
     } else {
         let config = load_config_for_profile(profile_name)?;
         config.get(key).cloned()
@@ -177,10 +187,14 @@ async fn get_config_value(key: &str, profile: &str) -> Result<()> {
             }
         }
         None => {
-            println!(
-                "{}",
-                format!("Key '{key}' not found in profile '{profile_name}'").red()
-            );
+            if is_obsctl_key(key) {
+                println!("{}", format!("obsctl key '{key}' not found").red());
+            } else {
+                println!(
+                    "{}",
+                    format!("Key '{key}' not found in profile '{profile_name}'").red()
+                );
+            }
         }
     }
 
@@ -194,12 +208,16 @@ async fn list_config(profile: &str, show_files: bool) -> Result<()> {
     if show_files {
         println!("{}", "Configuration Files:".bold().blue());
         println!(
-            "Config: {}",
+            "AWS Config: {}",
             get_config_file_path()?.display().to_string().cyan()
         );
         println!(
-            "Credentials: {}",
+            "AWS Credentials: {}",
             get_credentials_file_path()?.display().to_string().cyan()
+        );
+        println!(
+            "obsctl Config: {}",
+            get_obsctl_dir()?.display().to_string().cyan()
         );
         println!();
     }
@@ -227,17 +245,30 @@ async fn list_config(profile: &str, show_files: bool) -> Result<()> {
         println!();
     }
 
-    // Load and display config
+    // Load and display AWS config
     let config = load_config_for_profile(profile_name)?;
     if !config.is_empty() {
-        println!("{}", "Configuration:".bold().green());
+        println!("{}", "AWS Configuration:".bold().green());
         for (key, value) in &config {
             println!("  {} = {}", key.cyan(), value.yellow());
         }
         println!();
     }
 
-    if credentials.is_empty() && config.is_empty() {
+    // Load and display obsctl config
+    let obsctl_config = load_obsctl_config()?;
+    if !obsctl_config.is_empty() {
+        println!("{}", "obsctl Configuration:".bold().green());
+        for (section, section_data) in &obsctl_config {
+            println!("  [{}]", section.bold().cyan());
+            for (key, value) in section_data {
+                println!("    {} = {}", key.cyan(), value.yellow());
+            }
+        }
+        println!();
+    }
+
+    if credentials.is_empty() && config.is_empty() && obsctl_config.is_empty() {
         println!(
             "{}",
             format!("No configuration found for profile '{profile_name}'").yellow()
@@ -257,6 +288,11 @@ fn get_aws_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".aws"))
 }
 
+fn get_obsctl_dir() -> Result<PathBuf> {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"))?;
+    Ok(PathBuf::from(home).join(".obsctl"))
+}
+
 fn get_config_file_path() -> Result<PathBuf> {
     Ok(get_aws_dir()?.join("config"))
 }
@@ -273,6 +309,14 @@ fn ensure_aws_dir() -> Result<()> {
     Ok(())
 }
 
+fn ensure_obsctl_dir() -> Result<()> {
+    let obsctl_dir = get_obsctl_dir()?;
+    if !obsctl_dir.exists() {
+        fs::create_dir_all(&obsctl_dir)?;
+    }
+    Ok(())
+}
+
 fn is_credential_key(key: &str) -> bool {
     matches!(
         key,
@@ -282,6 +326,51 @@ fn is_credential_key(key: &str) -> bool {
 
 fn is_secret_key(key: &str) -> bool {
     matches!(key, "aws_secret_access_key" | "aws_session_token")
+}
+
+fn is_obsctl_key(key: &str) -> bool {
+    matches!(
+        key,
+        "otel_enabled"
+            | "otel_endpoint"
+            | "otel_service_name"
+            | "otel_service_version"
+            | "loki_enabled"
+            | "loki_endpoint"
+            | "loki_log_level"
+            | "loki_label_service"
+            | "loki_label_environment"
+            | "loki_label_version"
+            | "jaeger_enabled"
+            | "jaeger_endpoint"
+            | "jaeger_service_name"
+            | "jaeger_service_version"
+            | "jaeger_sampling_ratio"
+    )
+}
+
+fn get_obsctl_config_section(key: &str) -> &'static str {
+    if key.starts_with("otel_") {
+        "otel"
+    } else if key.starts_with("loki_") {
+        "loki"
+    } else if key.starts_with("jaeger_") {
+        "jaeger"
+    } else {
+        "obsctl"
+    }
+}
+
+fn normalize_obsctl_key(key: &str) -> String {
+    if let Some(suffix) = key.strip_prefix("otel_") {
+        suffix.to_string()
+    } else if let Some(suffix) = key.strip_prefix("loki_") {
+        suffix.to_string()
+    } else if let Some(suffix) = key.strip_prefix("jaeger_") {
+        suffix.to_string()
+    } else {
+        key.to_string()
+    }
 }
 
 fn load_ini_file(path: &PathBuf) -> Result<HashMap<String, HashMap<String, String>>> {
@@ -384,6 +473,58 @@ async fn set_credential_value(key: &str, value: &str, profile: &str) -> Result<(
 
     save_ini_file(&credentials_file, &all_credentials, false)?;
     Ok(())
+}
+
+async fn set_obsctl_config_value(key: &str, value: &str) -> Result<()> {
+    ensure_obsctl_dir()?;
+
+    let section = get_obsctl_config_section(key);
+    let normalized_key = normalize_obsctl_key(key);
+    let config_file = get_obsctl_dir()?.join(section);
+
+    let mut all_config = load_ini_file(&config_file).unwrap_or_default();
+
+    all_config
+        .entry(section.to_string())
+        .or_default()
+        .insert(normalized_key, value.to_string());
+
+    save_ini_file(&config_file, &all_config, false)?;
+    Ok(())
+}
+
+fn get_obsctl_config_value(key: &str) -> Result<Option<String>> {
+    let section = get_obsctl_config_section(key);
+    let normalized_key = normalize_obsctl_key(key);
+    let config_file = get_obsctl_dir()?.join(section);
+
+    if !config_file.exists() {
+        return Ok(None);
+    }
+
+    let all_config = load_ini_file(&config_file)?;
+    Ok(all_config
+        .get(section)
+        .and_then(|section_data| section_data.get(&normalized_key))
+        .cloned())
+}
+
+fn load_obsctl_config() -> Result<HashMap<String, HashMap<String, String>>> {
+    let obsctl_dir = get_obsctl_dir()?;
+    let mut all_config = HashMap::new();
+
+    // Check for each config file type
+    let config_files = ["otel", "loki", "jaeger", "config"];
+
+    for config_name in &config_files {
+        let config_file = obsctl_dir.join(config_name);
+        if config_file.exists() {
+            let file_config = load_ini_file(&config_file)?;
+            all_config.extend(file_config);
+        }
+    }
+
+    Ok(all_config)
 }
 
 fn prompt_for_value(prompt: &str, current: Option<&String>, hide_input: bool) -> Result<String> {
@@ -534,7 +675,7 @@ async fn show_environment_variables() -> Result<()> {
     println!();
     println!("  # Enable OpenTelemetry");
     println!(
-        "  {} obsctl cp file.txt s3://bucket/",
+        "  {} obsctl cp ./file.txt s3://bucket/",
         "OTEL_ENABLED=true".yellow()
     );
     println!();
@@ -595,7 +736,7 @@ aws_secret_access_key = prod-secret-key"#;
     println!("{}", "Usage with profiles:".bold());
     println!("  {} obsctl ls s3://bucket", "AWS_PROFILE=dev".yellow());
     println!(
-        "  {} obsctl cp file.txt s3://bucket/",
+        "  {} obsctl cp ./file.txt s3://bucket/",
         "AWS_PROFILE=production".yellow()
     );
 
@@ -620,10 +761,11 @@ async fn show_otel_configuration() -> Result<()> {
     println!("     OTEL_SERVICE_NAME=obsctl");
     println!();
 
-    println!("  2. {} (in ~/.aws/config)", "Config File".cyan());
-    println!("     otel_enabled = true");
-    println!("     otel_endpoint = http://localhost:4317");
-    println!("     otel_service_name = obsctl");
+    println!("  2. {} (in ~/.obsctl/otel)", "Config File".cyan());
+    println!("     [otel]");
+    println!("     enabled = true");
+    println!("     endpoint = http://localhost:4317");
+    println!("     service_name = obsctl");
     println!();
 
     println!("  3. {} (using obsctl config)", "Interactive Setup".cyan());
@@ -653,9 +795,60 @@ async fn show_otel_configuration() -> Result<()> {
     println!("  • {} - Bucket analytics", "obsctl_bucket_*".dimmed());
     println!();
 
+    println!("{}", "Docker Compose Integration:".bold());
+    println!("  📊 Complete observability stack available:");
+    println!("     docker compose up -d    # Start all services");
+    println!("     • MinIO (S3): http://localhost:9000");
+    println!("     • OTEL Collector: http://localhost:4317");
+    println!("     • Prometheus: http://localhost:9090");
+    println!("     • Grafana: http://localhost:3000");
+    println!("     • Jaeger: http://localhost:16686");
+    println!();
+
+    println!("{}", "Dashboard Installation:".bold());
+    println!("  📈 Install obsctl dashboards to Grafana:");
+    println!("     obsctl config dashboard install");
+    println!("     # Dashboards auto-refresh every 5 seconds");
+    println!("     # Includes business metrics, performance, and error monitoring");
+    println!();
+
     println!("{}", "Quick Test:".bold());
     println!("  {} obsctl ls s3://bucket", "OTEL_ENABLED=true".yellow());
     println!("  # Check metrics at http://localhost:9090 (Prometheus)");
+    println!("  # View dashboards at http://localhost:3000 (Grafana)");
+    println!();
+
+    println!("{}", "Troubleshooting:".bold());
+    println!("  🔍 Common issues and solutions:");
+    println!("     • No metrics in Prometheus?");
+    println!("       → Check OTEL Collector logs: docker compose logs otel-collector");
+    println!("       → Verify endpoint: curl http://localhost:4317/v1/metrics");
+    println!("     • Grafana dashboards empty?");
+    println!("       → Run: obsctl config dashboard install");
+    println!("       → Check Prometheus datasource in Grafana");
+    println!("     • High resource usage?");
+    println!("       → Use sampling: OTEL_TRACES_SAMPLER=parentbased_traceidratio");
+    println!("       → Set sample rate: OTEL_TRACES_SAMPLER_ARG=0.1");
+    println!();
+
+    println!("{}", "Production Configuration:".bold());
+    println!("  🏭 For production environments:");
+    println!("     • Use remote OTEL collector endpoint");
+    println!("     • Set service name per environment (obsctl-prod, obsctl-staging)");
+    println!("     • Enable sampling to reduce overhead");
+    println!("     • Configure resource attributes for filtering");
+    println!();
+    println!("  Example production setup:");
+    println!("     {}", "OTEL_ENABLED=true".yellow());
+    println!(
+        "     {}",
+        "OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.company.com:4317".yellow()
+    );
+    println!("     {}", "OTEL_SERVICE_NAME=obsctl-prod".yellow());
+    println!(
+        "     {}",
+        "OTEL_RESOURCE_ATTRIBUTES=environment=production,team=storage".yellow()
+    );
 
     Ok(())
 }
@@ -691,11 +884,14 @@ async fn install_dashboards(
     }
     println!("{}", "✅ Connected to Grafana successfully".green());
 
-    // Create folder if it doesn't exist
-    println!("📁 Creating folder '{folder}'...");
+    // Create or get the obsctl folder
+    println!("📁 Setting up '{folder}' folder...");
+    let folder_uid = "obsctl-folder".to_string();
+
+    // First try to create the folder
     let folder_payload = json!({
         "title": folder,
-        "uid": format!("{}-folder", folder)
+        "uid": folder_uid
     });
 
     let folder_response = client
@@ -706,17 +902,18 @@ async fn install_dashboards(
         .send()
         .await?;
 
-    if folder_response.status().is_success() || folder_response.status().as_u16() == 409 {
-        println!("{}", "✅ Folder ready".green());
+    // Check if folder creation succeeded or already exists
+    if folder_response.status().is_success() {
+        println!("{}", "✅ Folder created successfully".green());
+    } else if folder_response.status().as_u16() == 409 {
+        println!("{}", "✅ Folder already exists".green());
     } else {
         println!(
             "{}",
-            "⚠️  Folder creation warning (may already exist)".yellow()
+            "⚠️  Using General folder (folder creation failed)".yellow()
         );
+        // Continue without folder - install in General
     }
-
-    // Get embedded dashboard content
-    let dashboard_content = get_embedded_dashboard_content();
 
     if !force {
         // Check if dashboard already exists
@@ -744,47 +941,59 @@ async fn install_dashboards(
         }
     }
 
-    // Install the dashboard
-    println!("📊 Installing obsctl Unified Dashboard...");
-    let dashboard_payload = json!({
-        "dashboard": dashboard_content,
-        "folderId": null,
-        "folderUid": format!("{}-folder", folder),
-        "overwrite": force,
-        "message": "Installed by obsctl config dashboard install"
-    });
+    // Install all three dashboards
+    let dashboards = vec![
+        ("obsctl-unified.json", "obsctl Unified Dashboard"),
+        ("obsctl-loki.json", "obsctl Loki Dashboard"),
+        ("obsctl-jaeger.json", "obsctl Jaeger Dashboard"),
+    ];
 
-    let install_response = client
-        .post(format!("{url}/api/dashboards/db"))
-        .header("Authorization", format!("Basic {auth}"))
-        .header("Content-Type", "application/json")
-        .json(&dashboard_payload)
-        .send()
-        .await?;
+    for (filename, dashboard_name) in dashboards {
+        println!("📊 Installing {dashboard_name}...");
 
-    if install_response.status().is_success() {
-        let response_data: Value = install_response.json().await?;
-        println!("{}", "✅ Dashboard installed successfully!".green().bold());
+        let dashboard_content = get_dashboard_content(filename)?;
 
-        if let Some(dashboard_url) = response_data["url"].as_str() {
-            println!("🌐 Dashboard URL: {url}{dashboard_url}");
+        let dashboard_payload = json!({
+            "dashboard": dashboard_content,
+            "folderId": null,
+            "folderUid": folder_uid,
+            "overwrite": force,
+            "message": format!("Installed by obsctl config dashboard install - {}", dashboard_name)
+        });
+
+        let install_response = client
+            .post(format!("{url}/api/dashboards/db"))
+            .header("Authorization", format!("Basic {auth}"))
+            .header("Content-Type", "application/json")
+            .json(&dashboard_payload)
+            .send()
+            .await?;
+
+        if install_response.status().is_success() {
+            let response_data: Value = install_response.json().await?;
+            println!("   {}", "✅ Installed successfully".green());
+
+            if let Some(dashboard_url) = response_data["url"].as_str() {
+                println!("   🌐 URL: {url}{dashboard_url}");
+            }
+        } else {
+            let error_text = install_response.text().await?;
+            println!("   {} Failed: {}", "❌".red(), error_text);
         }
-
-        println!();
-        println!("{}", "Dashboard Features:".bold());
-        println!("  📊 Business Metrics - Data transfer volumes and rates");
-        println!("  ⚡ Performance Metrics - Operations and throughput");
-        println!("  🚨 Error Monitoring - Error rates and types");
-        println!("  📈 Real-time Updates - 5-second refresh rate");
-
-        Ok(())
-    } else {
-        let error_text = install_response.text().await?;
-        Err(anyhow::anyhow!(
-            "Failed to install dashboard: {}",
-            error_text
-        ))
     }
+
+    println!();
+    println!("{}", "✅ Dashboard installation complete!".green().bold());
+    println!();
+    println!("{}", "Dashboard Features:".bold());
+    println!("  📊 Unified Dashboard - Complete metrics overview");
+    println!("  📝 Loki Dashboard - Centralized log analysis");
+    println!("  🔍 Jaeger Dashboard - Distributed tracing");
+    println!("  📈 Real-time Updates - 5-second refresh rate");
+    println!();
+    println!("🌐 Access dashboards at: {url}/dashboards/f/{folder_uid}");
+
+    Ok(())
 }
 
 /// List obsctl dashboards (only shows obsctl-related dashboards)
@@ -992,15 +1201,15 @@ fn get_dashboard_installation_path() -> PathBuf {
     PathBuf::from("/usr/share/obsctl/dashboards")
 }
 
-/// Get embedded dashboard content (this would be the actual dashboard JSON)
-fn get_embedded_dashboard_content() -> Value {
+/// Get dashboard content by filename
+fn get_dashboard_content(filename: &str) -> Result<Value> {
     // Try to read from installation path first
-    let installation_path = get_dashboard_installation_path().join("obsctl-unified.json");
+    let installation_path = get_dashboard_installation_path().join(filename);
 
     if installation_path.exists() {
         match fs::read_to_string(&installation_path) {
             Ok(content) => match serde_json::from_str(&content) {
-                Ok(dashboard) => return dashboard,
+                Ok(dashboard) => return Ok(dashboard),
                 Err(e) => {
                     eprintln!(
                         "Warning: Failed to parse dashboard from {}: {}",
@@ -1019,7 +1228,17 @@ fn get_embedded_dashboard_content() -> Value {
         }
     }
 
-    // Fallback to embedded minimal dashboard
+    // Fallback to embedded dashboard based on filename
+    match filename {
+        "obsctl-unified.json" => Ok(get_embedded_unified_dashboard()),
+        "obsctl-loki.json" => Ok(get_embedded_loki_dashboard()),
+        "obsctl-jaeger.json" => Ok(get_embedded_jaeger_dashboard()),
+        _ => Ok(get_embedded_unified_dashboard()), // Default fallback
+    }
+}
+
+/// Get embedded unified dashboard content
+fn get_embedded_unified_dashboard() -> Value {
     json!({
         "annotations": {
             "list": []
@@ -1041,7 +1260,7 @@ fn get_embedded_dashboard_content() -> Value {
                 },
                 "id": 100,
                 "panels": [],
-                "title": "📊 OBSCTL BUSINESS METRICS",
+                "title": "📊 BUSINESS METRICS",
                 "type": "row"
             },
             {
@@ -1176,6 +1395,166 @@ fn get_embedded_dashboard_content() -> Value {
         "timezone": "",
         "title": "obsctl Unified Dashboard",
         "uid": "obsctl-unified",
+        "version": 1,
+        "weekStart": ""
+    })
+}
+
+/// Get embedded Loki dashboard content
+fn get_embedded_loki_dashboard() -> Value {
+    json!({
+        "annotations": {
+            "list": []
+        },
+        "editable": true,
+        "fiscalYearStartMonth": 0,
+        "graphTooltip": 0,
+        "id": null,
+        "links": [],
+        "liveNow": false,
+        "panels": [
+            {
+                "collapsed": false,
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 0
+                },
+                "id": 100,
+                "panels": [],
+                "title": "📝 LOKI LOG ANALYSIS",
+                "type": "row"
+            },
+            {
+                "datasource": {
+                    "type": "loki",
+                    "uid": "loki"
+                },
+                "description": "Live log stream from obsctl operations",
+                "gridPos": {
+                    "h": 12,
+                    "w": 24,
+                    "x": 0,
+                    "y": 1
+                },
+                "id": 1,
+                "options": {
+                    "showTime": true,
+                    "showLabels": false,
+                    "showCommonLabels": false,
+                    "wrapLogMessage": false,
+                    "prettifyLogMessage": false,
+                    "enableLogDetails": true,
+                    "dedupStrategy": "none",
+                    "sortOrder": "Descending"
+                },
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "loki",
+                            "uid": "loki"
+                        },
+                        "expr": "{service=\"obsctl\"}",
+                        "refId": "A"
+                    }
+                ],
+                "title": "📋 Live Log Stream",
+                "type": "logs"
+            }
+        ],
+        "refresh": "5s",
+        "schemaVersion": 39,
+        "style": "dark",
+        "tags": ["obsctl", "loki", "logs"],
+        "templating": {
+            "list": []
+        },
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "timepicker": {
+            "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+        },
+        "timezone": "",
+        "title": "obsctl Loki Dashboard",
+        "uid": "obsctl-loki",
+        "version": 1,
+        "weekStart": ""
+    })
+}
+
+/// Get embedded Jaeger dashboard content
+fn get_embedded_jaeger_dashboard() -> Value {
+    json!({
+        "annotations": {
+            "list": []
+        },
+        "editable": true,
+        "fiscalYearStartMonth": 0,
+        "graphTooltip": 0,
+        "id": null,
+        "links": [],
+        "liveNow": false,
+        "panels": [
+            {
+                "collapsed": false,
+                "gridPos": {
+                    "h": 1,
+                    "w": 24,
+                    "x": 0,
+                    "y": 0
+                },
+                "id": 100,
+                "panels": [],
+                "title": "🔍 JAEGER TRACING",
+                "type": "row"
+            },
+            {
+                "datasource": {
+                    "type": "jaeger",
+                    "uid": "jaeger"
+                },
+                "description": "Distributed traces from obsctl operations",
+                "gridPos": {
+                    "h": 12,
+                    "w": 24,
+                    "x": 0,
+                    "y": 1
+                },
+                "id": 1,
+                "targets": [
+                    {
+                        "datasource": {
+                            "type": "jaeger",
+                            "uid": "jaeger"
+                        },
+                        "query": "obsctl",
+                        "refId": "A"
+                    }
+                ],
+                "title": "🔗 Trace Timeline",
+                "type": "traces"
+            }
+        ],
+        "refresh": "5s",
+        "schemaVersion": 39,
+        "style": "dark",
+        "tags": ["obsctl", "jaeger", "traces"],
+        "templating": {
+            "list": []
+        },
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "timepicker": {
+            "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+        },
+        "timezone": "",
+        "title": "obsctl Jaeger Dashboard",
+        "uid": "obsctl-jaeger",
         "version": 1,
         "weekStart": ""
     })

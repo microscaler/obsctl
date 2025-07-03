@@ -1,10 +1,18 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::config::OtelConfig;
+
+/// Global flag to track if OTEL was actually initialized
+static OTEL_INITIALIZED: OnceLock<bool> = OnceLock::new();
+
+/// Check if OTEL was initialized
+pub fn is_otel_initialized() -> bool {
+    *OTEL_INITIALIZED.get().unwrap_or(&false)
+}
 
 /// Global metrics collector for obsctl operations
 #[derive(Debug, Clone)]
@@ -27,7 +35,7 @@ pub struct ObsctlMetrics {
     pub files_deleted_total: Arc<AtomicU64>,
 
     // Performance metrics
-    pub operation_duration_ms: Arc<Mutex<Vec<(String, u64)>>>, // (operation_type, duration_ms)
+    pub operation_duration_ms: Arc<TokioMutex<Vec<(String, u64)>>>, // (operation_type, duration_ms)
 
     // Error counters
     pub errors_total: Arc<AtomicU64>,
@@ -49,10 +57,10 @@ pub struct ObsctlMetrics {
     pub files_by_size_xlarge: Arc<AtomicU64>, // > 1GB
 
     // Transfer rates (calculated in KB/s)
-    pub transfer_rates: Arc<Mutex<Vec<(String, f64)>>>, // (operation_type, kb_per_sec)
+    pub transfer_rates: Arc<TokioMutex<Vec<(String, f64)>>>, // (operation_type, kb_per_sec)
 
     // MIME type tracking
-    pub mime_types: Arc<Mutex<HashMap<String, u64>>>, // mime_type -> count
+    pub mime_types: Arc<TokioMutex<HashMap<String, u64>>>, // mime_type -> count
 
     // Detailed file metrics
     pub total_transfer_time_ms: Arc<AtomicU64>, // For calculating average rates
@@ -80,7 +88,7 @@ impl ObsctlMetrics {
             files_uploaded_total: Arc::new(AtomicU64::new(0)),
             files_downloaded_total: Arc::new(AtomicU64::new(0)),
             files_deleted_total: Arc::new(AtomicU64::new(0)),
-            operation_duration_ms: Arc::new(Mutex::new(Vec::new())),
+            operation_duration_ms: Arc::new(TokioMutex::new(Vec::new())),
             errors_total: Arc::new(AtomicU64::new(0)),
             timeouts_total: Arc::new(AtomicU64::new(0)),
 
@@ -97,8 +105,8 @@ impl ObsctlMetrics {
             files_by_size_medium: Arc::new(AtomicU64::new(0)),
             files_by_size_large: Arc::new(AtomicU64::new(0)),
             files_by_size_xlarge: Arc::new(AtomicU64::new(0)),
-            transfer_rates: Arc::new(Mutex::new(Vec::new())),
-            mime_types: Arc::new(Mutex::new(HashMap::new())),
+            transfer_rates: Arc::new(TokioMutex::new(Vec::new())),
+            mime_types: Arc::new(TokioMutex::new(HashMap::new())),
             total_transfer_time_ms: Arc::new(AtomicU64::new(0)),
             largest_file_bytes: Arc::new(AtomicU64::new(0)),
             smallest_file_bytes: Arc::new(AtomicU64::new(u64::MAX)), // Start with max, will be reduced
@@ -866,6 +874,8 @@ pub fn init_tracing(otel_config: &OtelConfig, debug_level: &str) -> Result<()> {
         if is_debug {
             log::debug!("OpenTelemetry is disabled");
         }
+        // Set flag to false when disabled
+        let _ = OTEL_INITIALIZED.set(false);
         return Ok(());
     }
 
@@ -904,6 +914,8 @@ pub fn init_tracing(otel_config: &OtelConfig, debug_level: &str) -> Result<()> {
             ])
             .build();
 
+        let mut initialization_successful = false;
+
         // Initialize Tracer Provider for traces using the correct 0.30 API
         match opentelemetry_otlp::SpanExporter::builder()
             .with_tonic()
@@ -921,6 +933,7 @@ pub fn init_tracing(otel_config: &OtelConfig, debug_level: &str) -> Result<()> {
                 if is_debug {
                     log::debug!("✅ Tracer provider initialized successfully");
                 }
+                initialization_successful = true;
             }
             Err(e) => {
                 log::error!("❌ Failed to initialize tracer provider: {e}");
@@ -948,11 +961,15 @@ pub fn init_tracing(otel_config: &OtelConfig, debug_level: &str) -> Result<()> {
                 if is_debug {
                     log::debug!("✅ Meter provider initialized with 1-second export interval");
                 }
+                initialization_successful = true;
             }
             Err(e) => {
                 log::error!("❌ Failed to initialize meter provider: {e}");
             }
         }
+
+        // Set initialization flag based on success
+        let _ = OTEL_INITIALIZED.set(initialization_successful);
 
         if is_debug {
             log::debug!("🎉 OpenTelemetry SDK initialization complete");
@@ -963,21 +980,38 @@ pub fn init_tracing(otel_config: &OtelConfig, debug_level: &str) -> Result<()> {
 }
 
 /// Shutdown OpenTelemetry tracing with proper metric flushing
-pub fn shutdown_tracing() {
+pub fn shutdown_tracing(debug_level: &str) {
+    let is_debug = matches!(debug_level, "debug" | "trace");
+    let otel_was_initialized = is_otel_initialized();
+
+    if !otel_was_initialized {
+        if is_debug {
+            log::debug!("OpenTelemetry was not initialized, skipping shutdown sleep");
+        }
+        return;
+    }
+
     {
         use std::time::Duration;
 
-        log::info!("🔄 OpenTelemetry shutdown requested - flushing metrics and traces...");
+        if is_debug {
+            log::info!("🔄 OpenTelemetry shutdown requested - flushing metrics and traces...");
+        }
 
+        // Only sleep if OTEL was actually initialized and used
         // Give enough time for at least 2 export cycles (1 second interval + buffer)
         // This ensures all pending metrics and traces are exported before shutdown
         std::thread::sleep(Duration::from_millis(2500));
 
-        log::info!("🎉 OpenTelemetry shutdown complete - all pending metrics and traces flushed");
+        if is_debug {
+            log::info!(
+                "🎉 OpenTelemetry shutdown complete - all pending metrics and traces flushed"
+            );
+        }
     }
 
-    {
-        log::debug!("OpenTelemetry not enabled, nothing to shutdown");
+    if is_debug {
+        log::debug!("OpenTelemetry shutdown completed");
     }
 }
 
@@ -1034,6 +1068,7 @@ mod tests {
             endpoint: Some("http://localhost:4317".to_string()),
             service_name: "test-service".to_string(),
             service_version: "1.0.0".to_string(),
+            read_operations: false,
         };
 
         assert!(config.enabled);
@@ -1049,6 +1084,7 @@ mod tests {
             endpoint: None,
             service_name: "test".to_string(),
             service_version: "1.0.0".to_string(),
+            read_operations: false,
         };
 
         let result = init_tracing(&config, "info");
@@ -1068,6 +1104,7 @@ mod tests {
             endpoint: Some("http://localhost:4317".to_string()),
             service_name: "obsctl".to_string(),
             service_version: crate::get_service_version(),
+            read_operations: false,
         };
 
         // Use a simple runtime for the test
@@ -1091,6 +1128,7 @@ mod tests {
             endpoint: Some("http://localhost:4317".to_string()),
             service_name: "obsctl-test".to_string(),
             service_version: "test".to_string(),
+            read_operations: false,
         };
 
         // Test with actual OTEL collector

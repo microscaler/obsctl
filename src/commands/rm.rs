@@ -2,6 +2,7 @@ use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as b64, Engine as _};
 use log::info;
 use md5;
+use opentelemetry::trace::{Span, Tracer};
 use std::time::Instant;
 
 use crate::commands::s3_uri::{is_s3_uri, S3Uri};
@@ -16,6 +17,21 @@ pub async fn execute(
     include: Option<&str>,
     exclude: Option<&str>,
 ) -> Result<()> {
+    // Create a span for the rm operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("rm_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "rm"),
+            opentelemetry::KeyValue::new("path", path.to_string()),
+            opentelemetry::KeyValue::new("recursive", recursive),
+            opentelemetry::KeyValue::new("force", force),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("rm_operation_started", vec![]);
+
     let start_time = Instant::now();
 
     if !is_s3_uri(path) {
@@ -46,54 +62,46 @@ pub async fn execute(
         }
     };
 
-    match result {
-        Ok(_) => {
-            let duration = start_time.elapsed();
+    let duration = start_time.elapsed();
 
-            // Record rm operation using proper OTEL SDK
-            {
-                use crate::otel::OTEL_INSTRUMENTS;
-                use opentelemetry::KeyValue;
+    // Record overall rm operation metrics using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
 
-                let operation_type = if s3_uri.key.is_none() || s3_uri.key_or_empty().is_empty() {
-                    "rm_bucket"
-                } else if recursive {
-                    "rm_recursive"
-                } else {
-                    "rm_single"
-                };
+        // Record duration
+        let duration_seconds = duration.as_millis() as f64 / 1000.0;
+        OTEL_INSTRUMENTS
+            .operation_duration
+            .record(duration_seconds, &[KeyValue::new("operation", "rm")]);
 
-                OTEL_INSTRUMENTS
-                    .operations_total
-                    .add(1, &[KeyValue::new("operation", operation_type)]);
-
-                let duration_seconds = duration.as_millis() as f64 / 1000.0;
-                OTEL_INSTRUMENTS.operation_duration.record(
-                    duration_seconds,
-                    &[KeyValue::new("operation", operation_type)],
+        // Record success/failure
+        match &result {
+            Ok(_) => {
+                log::debug!("RM operation completed successfully in {duration:?}");
+                span.add_event(
+                    "rm_operation_completed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "success"),
+                        opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                    ],
                 );
             }
-
-            println!("delete: s3://{}/{}", s3_uri.bucket, s3_uri.key_or_empty());
-
-            // Transparent du call for real-time bucket analytics
-            let bucket_uri = format!("s3://{}", s3_uri.bucket);
-            call_transparent_du(config, &bucket_uri).await;
-
-            Ok(())
-        }
-        Err(e) => {
-            // Record error using proper OTEL SDK
-            {
-                use crate::otel::OTEL_INSTRUMENTS;
-
-                let error_msg = format!("Failed to delete {path}: {e}");
-                OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
+            Err(e) => {
+                OTEL_INSTRUMENTS.record_error_with_type(&e.to_string());
+                span.add_event(
+                    "rm_operation_failed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "error"),
+                        opentelemetry::KeyValue::new("error", e.to_string()),
+                    ],
+                );
             }
-
-            Err(e)
         }
     }
+
+    span.end();
+    result
 }
 
 async fn delete_single_object(config: &Config, s3_uri: &S3Uri) -> Result<()> {
@@ -555,7 +563,10 @@ mod tests {
                 endpoint: None,
                 service_name: "obsctl-test".to_string(),
                 service_version: crate::get_service_version(),
+                read_operations: false,
             },
+            loki: crate::config::LokiConfig::default(),
+            jaeger: crate::config::JaegerConfig::default(),
         }
     }
 

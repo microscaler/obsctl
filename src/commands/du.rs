@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::info;
+use opentelemetry::trace::{Span, Tracer};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -34,6 +35,35 @@ async fn execute_with_metrics_control(
     max_depth: Option<usize>,
     record_user_operation: bool,
 ) -> Result<()> {
+    // Create a span for the du operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let operation_name = if record_user_operation {
+        "du_operation"
+    } else {
+        "du_transparent_operation"
+    };
+
+    let mut span = tracer
+        .span_builder(operation_name)
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new(
+                "operation",
+                if record_user_operation {
+                    "du"
+                } else {
+                    "du_transparent"
+                },
+            ),
+            opentelemetry::KeyValue::new("s3_uri", s3_uri.to_string()),
+            opentelemetry::KeyValue::new("human_readable", human_readable),
+            opentelemetry::KeyValue::new("summarize", summarize),
+            opentelemetry::KeyValue::new("record_user_operation", record_user_operation),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event(format!("{operation_name}_started"), vec![]);
+
     let start_time = Instant::now();
 
     if !is_s3_uri(s3_uri) {
@@ -181,6 +211,18 @@ async fn execute_with_metrics_control(
                 }
             }
 
+            // Record success in span
+            span.add_event(
+                format!("{operation_name}_completed"),
+                vec![
+                    opentelemetry::KeyValue::new("status", "success"),
+                    opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                    opentelemetry::KeyValue::new("total_objects", objects.len() as i64),
+                    opentelemetry::KeyValue::new("total_size", total_size),
+                ],
+            );
+
+            span.end();
             Ok(())
         }
         Err(e) => {
@@ -192,6 +234,16 @@ async fn execute_with_metrics_control(
                 OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
             }
 
+            // Record error in span
+            span.add_event(
+                format!("{operation_name}_failed"),
+                vec![
+                    opentelemetry::KeyValue::new("status", "error"),
+                    opentelemetry::KeyValue::new("error", e.to_string()),
+                ],
+            );
+
+            span.end();
             Err(e)
         }
     }
@@ -362,7 +414,10 @@ mod tests {
                 endpoint: None,
                 service_name: "obsctl-test".to_string(),
                 service_version: crate::get_service_version(),
+                read_operations: false,
             },
+            loki: crate::config::LokiConfig::default(),
+            jaeger: crate::config::JaegerConfig::default(),
         }
     }
 

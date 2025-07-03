@@ -6,9 +6,9 @@ import shutil
 
 # Global Configuration
 TEMP_DIR = "/tmp/obsctl-traffic"
-OBSCTL_BINARY = "../target/release/obsctl"
+OBSCTL_BINARY = "./target/release/obsctl"
 MINIO_ENDPOINT = "http://127.0.0.1:9000"
-SCRIPT_DURATION_HOURS = 12
+SCRIPT_DURATION_HOURS = 0.167  # 10 minutes
 MAX_CONCURRENT_USERS = 10
 
 # 🚀 NEW: Disk Space Monitoring Configuration
@@ -147,7 +147,8 @@ USER_CONFIGS = {
             'images': 0.1,
             'archives': 0.05,
             'media': 0.05
-        }
+        },
+        'config_method': 'env_vars'  # Use environment variables
     },
     'bob-marketing': {
         'description': 'Marketing Manager - Media and presentations',
@@ -161,7 +162,8 @@ USER_CONFIGS = {
             'documents': 0.2,
             'code': 0.05,
             'archives': 0.05
-        }
+        },
+        'config_method': 'config_file'  # Use config files on disk
     },
     'carol-data': {
         'description': 'Data Scientist - Large datasets and analysis',
@@ -175,7 +177,8 @@ USER_CONFIGS = {
             'code': 0.2,
             'images': 0.05,
             'media': 0.05
-        }
+        },
+        'config_method': 'env_vars'  # Use environment variables
     },
     'david-backup': {
         'description': 'IT Admin - Automated backup systems',
@@ -189,7 +192,8 @@ USER_CONFIGS = {
             'code': 0.1,
             'images': 0.05,
             'media': 0.05
-        }
+        },
+        'config_method': 'config_file'  # Use config files on disk
     },
     'eve-design': {
         'description': 'Creative Designer - Images and media files',
@@ -203,7 +207,8 @@ USER_CONFIGS = {
             'documents': 0.1,
             'code': 0.05,
             'archives': 0.05
-        }
+        },
+        'config_method': 'env_vars'  # Use environment variables
     },
     'frank-research': {
         'description': 'Research Scientist - Academic papers and data',
@@ -217,7 +222,8 @@ USER_CONFIGS = {
             'code': 0.2,
             'images': 0.05,
             'media': 0.05
-        }
+        },
+        'config_method': 'config_file'  # Use config files on disk
     },
     'grace-sales': {
         'description': 'Sales Manager - Presentations and materials',
@@ -231,7 +237,8 @@ USER_CONFIGS = {
             'media': 0.1,
             'code': 0.05,
             'archives': 0.05
-        }
+        },
+        'config_method': 'env_vars'  # Use environment variables
     },
     'henry-ops': {
         'description': 'DevOps Engineer - Infrastructure and configs',
@@ -245,7 +252,8 @@ USER_CONFIGS = {
             'documents': 0.2,
             'images': 0.05,
             'media': 0.05
-        }
+        },
+        'config_method': 'config_file'  # Use config files on disk
     },
     'iris-content': {
         'description': 'Content Manager - Digital asset library',
@@ -259,7 +267,8 @@ USER_CONFIGS = {
             'documents': 0.2,
             'archives': 0.05,
             'code': 0.05
-        }
+        },
+        'config_method': 'env_vars'  # Use environment variables
     },
     'jack-mobile': {
         'description': 'Mobile Developer - App assets and code',
@@ -273,7 +282,8 @@ USER_CONFIGS = {
             'media': 0.2,
             'documents': 0.05,
             'archives': 0.05
-        }
+        },
+        'config_method': 'config_file'  # Use config files on disk
     }
 }
 
@@ -290,6 +300,10 @@ FILE_EXTENSIONS = {
 OBSCTL_ENV = {
     'OTEL_ENABLED': 'true',
     'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://localhost:4317',
+    'JAEGER_ENABLED': 'true',
+    'JAEGER_ENDPOINT': 'http://localhost:14250',
+    'JAEGER_SERVICE_NAME': 'obsctl',
+    'JAEGER_SAMPLING_RATIO': '1.0',
     'AWS_ACCESS_KEY_ID': 'minioadmin',
     'AWS_SECRET_ACCESS_KEY': 'minioadmin123',
     'AWS_ENDPOINT_URL': MINIO_ENDPOINT,

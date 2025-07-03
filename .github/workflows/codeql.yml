@@ -1,0 +1,271 @@
+name: "CodeQL Security Analysis"
+
+# IMPORTANT: Code Security must be enabled in repository settings for this workflow to function
+# Go to: Settings → Security & Analysis → Code security and analysis → Enable "Code scanning"
+# This workflow provides comprehensive security analysis for Rust and Python code
+
+on:
+  workflow_call:
+  schedule:
+    # Run CodeQL analysis every Monday at 6 AM UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Smart concurrency control - only for manual dispatch
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-scheduled', github.workflow) }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'rust', 'python' ]
+        # CodeQL supports: 'cpp', 'csharp', 'go', 'java', 'javascript', 'python', 'ruby', 'rust'
+        # Note: JavaScript removed as obsctl project contains only Rust and Python code
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        # If you wish to specify custom queries, you can do so here or in a config file.
+        # By default, queries listed here will override any specified in a config file.
+        # Prefix the list here with "+" to use these queries and those in the config file.
+        queries: +security-and-quality
+        config: |
+          name: "obsctl CodeQL config"
+          disable-default-rules: false
+          queries:
+            - name: security-and-quality
+              uses: security-and-quality
+            - name: security-extended
+              uses: security-extended
+          paths-ignore:
+            - target/
+            - .git/
+            - node_modules/
+            - '**/*.md'
+            - '**/*.txt'
+            - '**/*.json'
+            - '**/*.yml'
+            - '**/*.yaml'
+          paths:
+            - src/
+            - scripts/
+            - tests/
+
+    - name: Set up Rust toolchain (for Rust analysis)
+      if: matrix.language == 'rust'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Cargo dependencies (for Rust analysis)
+      if: matrix.language == 'rust'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: codeql-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          codeql-${{ runner.os }}-cargo-
+
+    - name: Set up Python (for Python analysis)
+      if: matrix.language == 'python'
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies (for Python analysis)
+      if: matrix.language == 'python'
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f scripts/requirements.txt ]; then
+          pip install -r scripts/requirements.txt
+        fi
+
+
+
+    # Autobuild attempts to build any compiled languages (Rust).
+    # If this step fails, then you should remove it and run the build manually
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    # Manual build steps for complex projects
+    # - name: Manual build (if autobuild fails)
+    #   if: matrix.language == 'rust'
+    #   run: |
+    #     cargo build --release
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+        # Results are automatically uploaded to GitHub Security tab
+
+    # Note: CodeQL analysis automatically uploads results to GitHub Security tab
+    # Additional SARIF upload is not needed as it's handled by the analyze action
+
+  # Additional security checks
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Install cargo-deny
+      run: cargo install cargo-deny
+
+    - name: Run cargo audit
+      run: cargo audit --json --output audit-results.json
+      continue-on-error: true
+
+    - name: Run cargo deny
+      run: cargo deny check --format json --output deny-results.json
+      continue-on-error: true
+
+    - name: Upload security audit results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-audit-results
+        path: |
+          audit-results.json
+          deny-results.json
+        retention-days: 30
+
+    - name: Check for high-severity vulnerabilities
+      run: |
+        if [ -f audit-results.json ]; then
+          # Check if there are any vulnerabilities
+          vuln_count=$(jq '.vulnerabilities.found | length' audit-results.json)
+          if [ "$vuln_count" -gt 0 ]; then
+            echo "⚠️ Found $vuln_count vulnerabilities"
+            jq '.vulnerabilities.list[] | select(.advisory.severity == "high" or .advisory.severity == "critical")' audit-results.json
+            high_crit_count=$(jq '[.vulnerabilities.list[] | select(.advisory.severity == "high" or .advisory.severity == "critical")] | length' audit-results.json)
+            if [ "$high_crit_count" -gt 0 ]; then
+              echo "❌ Found $high_crit_count high/critical severity vulnerabilities"
+              exit 1
+            fi
+          else
+            echo "✅ No vulnerabilities found"
+          fi
+        fi
+
+  # Supply chain security
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-machete (find unused dependencies)
+      run: cargo install cargo-machete
+
+    - name: Install cargo-outdated
+      run: cargo install cargo-outdated
+
+    - name: Check for unused dependencies
+      run: cargo machete
+
+    - name: Check for outdated dependencies
+      run: cargo outdated --format json --output outdated-results.json
+      continue-on-error: true
+
+    - name: Upload supply chain results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: supply-chain-results
+        path: |
+          outdated-results.json
+        retention-days: 30
+
+  # SBOM Generation
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-cyclonedx
+      run: cargo install cargo-cyclonedx
+
+    - name: Generate SBOM
+      run: |
+        # Generate JSON SBOM
+        cargo cyclonedx --format json > sbom.json
+        # Generate XML SBOM
+        cargo cyclonedx --format xml > sbom.xml
+
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: |
+          sbom.json
+          sbom.xml
+        retention-days: 90
+
+    - name: Attach SBOM to release (if tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          sbom.json
+          sbom.xml
+
+  # Security summary
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [analyze, security-audit, supply-chain, sbom]
+    if: always()
+    steps:
+    - name: Security Analysis Summary
+      run: |
+        echo "🔒 Security Analysis Summary"
+        echo "=========================="
+        echo "CodeQL Analysis: ${{ needs.analyze.result }}"
+        echo "Security Audit: ${{ needs.security-audit.result }}"
+        echo "Supply Chain: ${{ needs.supply-chain.result }}"
+        echo "SBOM Generation: ${{ needs.sbom.result }}"
+        echo ""
+
+        if [ "${{ needs.analyze.result }}" = "failure" ] || [ "${{ needs.security-audit.result }}" = "failure" ]; then
+          echo "❌ Security analysis failed - review results"
+          exit 1
+        else
+          echo "✅ Security analysis completed successfully"
+        fi

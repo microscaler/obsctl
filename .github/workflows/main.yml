@@ -1,0 +1,552 @@
+name: Main CI/CD Controller
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force release workflow execution'
+        required: false
+        default: false
+        type: boolean
+      skip_tests:
+        description: 'Skip test execution (emergency releases only)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write           # Required for repository access and release creation
+  pull-requests: write      # Required for PR management and status updates
+  actions: read             # Required for workflow execution
+  checks: read              # Required for status checks
+  issues: read              # Required for branch-to-issue validation
+  security-events: write    # Required for CodeQL security analysis
+  packages: write           # Required for package publishing (Docker, etc.)
+  deployments: write        # Required for deployment status updates
+  statuses: write           # Required for commit status updates
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Workflow Controller - Determines what needs to run
+  controller:
+    name: Workflow Controller
+    runs-on: ubuntu-latest
+    outputs:
+      should_run_ci: ${{ steps.determine.outputs.should_run_ci }}
+      should_run_release: ${{ steps.determine.outputs.should_run_release }}
+      is_main_branch: ${{ steps.determine.outputs.is_main_branch }}
+      is_pr: ${{ steps.determine.outputs.is_pr }}
+      branch_name: ${{ steps.determine.outputs.branch_name }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Determine workflow execution
+      id: determine
+      run: |
+        echo "Event: ${{ github.event_name }}"
+        echo "Ref: ${{ github.ref }}"
+        echo "Base ref: ${{ github.base_ref }}"
+
+        # Determine branch context
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          IS_PR=true
+          BRANCH_NAME="${{ github.head_ref }}"
+          IS_MAIN_BRANCH=false
+        else
+          IS_PR=false
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [ "$BRANCH_NAME" = "main" ] || [ "$BRANCH_NAME" = "master" ]; then
+            IS_MAIN_BRANCH=true
+          else
+            IS_MAIN_BRANCH=false
+          fi
+        fi
+
+        # CI should run on all pushes and PRs
+        SHOULD_RUN_CI=true
+
+        # Release should only run on main/master pushes or manual dispatch
+        # Let release-please determine if a release is actually needed
+        if [ "$IS_MAIN_BRANCH" = "true" ] && [ "${{ github.event_name }}" = "push" ]; then
+          echo "🔄 Main branch push detected, allowing release-please to determine if release is needed"
+          SHOULD_RUN_RELEASE=true
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force_release }}" = "true" ]; then
+          echo "🔄 Manual release forced via workflow dispatch"
+          SHOULD_RUN_RELEASE=true
+        else
+          echo "⏭️  Not a main branch push or forced release, skipping release-please"
+          SHOULD_RUN_RELEASE=false
+        fi
+
+        echo "should_run_ci=$SHOULD_RUN_CI" >> $GITHUB_OUTPUT
+        echo "should_run_release=$SHOULD_RUN_RELEASE" >> $GITHUB_OUTPUT
+        echo "is_main_branch=$IS_MAIN_BRANCH" >> $GITHUB_OUTPUT
+        echo "is_pr=$IS_PR" >> $GITHUB_OUTPUT
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+        echo "📊 Workflow Execution Plan:"
+        echo "  Branch: $BRANCH_NAME"
+        echo "  Is PR: $IS_PR"
+        echo "  Is Main Branch: $IS_MAIN_BRANCH"
+        echo "  Run CI: $SHOULD_RUN_CI"
+        echo "  Run Release: $SHOULD_RUN_RELEASE"
+
+        if [ "$IS_MAIN_BRANCH" = "true" ] && [ "${{ github.event_name }}" = "push" ] && [ "$SHOULD_RUN_RELEASE" = "false" ]; then
+          echo ""
+          echo "ℹ️  Release skipped: Direct push to main/master (not a PR merge)"
+        fi
+
+  # Branch-to-Issue Validation (strict development practices)
+  branch-validation:
+    name: Branch-to-Issue Validation
+    runs-on: ubuntu-latest
+    needs: controller
+    if: needs.controller.outputs.should_run_ci == 'true' && needs.controller.outputs.is_pr == 'true'
+    steps:
+    - name: Validate branch naming and issue existence
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const branchName = '${{ needs.controller.outputs.branch_name }}';
+          console.log(`🔍 Validating branch: ${branchName}`);
+
+          // Check if branch follows issue-XXX-description format
+          const branchPattern = /^issue-(\d{1,3})-(.+)$/;
+          const match = branchName.match(branchPattern);
+
+          if (!match) {
+            console.log(`❌ FAILED: Branch name doesn't follow required format`);
+            console.log(`   Branch: ${branchName}`);
+            console.log(`   Required: issue-XXX-description (e.g., issue-123-fix-auth-bug)`);
+            console.log(`   Where XXX is a 1-3 digit issue number`);
+            throw new Error(`Branch name must follow format: issue-XXX-description`);
+          }
+
+          const issueNumber = parseInt(match[1]);
+          const description = match[2];
+
+          console.log(`✅ Branch format valid: issue-${issueNumber}-${description}`);
+
+          // Check if the referenced issue exists
+          try {
+            const issue = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            console.log(`✅ Issue #${issueNumber} exists: "${issue.data.title}"`);
+            console.log(`   State: ${issue.data.state}`);
+            console.log(`   URL: ${issue.data.html_url}`);
+
+            // Warn if issue is closed
+            if (issue.data.state === 'closed') {
+              console.log(`⚠️  WARNING: Issue #${issueNumber} is closed`);
+              console.log(`   Consider reopening the issue or using a different issue number`);
+            }
+
+            // Check if PR title references the issue
+            const prTitle = context.payload.pull_request?.title || '';
+            if (!prTitle.includes(`#${issueNumber}`) && !prTitle.toLowerCase().includes(`issue ${issueNumber}`)) {
+              console.log(`💡 SUGGESTION: Consider referencing issue #${issueNumber} in PR title`);
+              console.log(`   Current title: "${prTitle}"`);
+              console.log(`   Suggested: "feat: resolve #${issueNumber} - ${description.replace(/-/g, ' ')}"`);
+            }
+
+          } catch (error) {
+            if (error.status === 404) {
+              console.log(`❌ FAILED: Issue #${issueNumber} does not exist`);
+              console.log(`   Branch: ${branchName}`);
+              console.log(`   Please create issue #${issueNumber} first or use an existing issue number`);
+              console.log(`   Create issue: https://github.com/${context.repo.owner}/${context.repo.repo}/issues/new`);
+              throw new Error(`Issue #${issueNumber} does not exist`);
+            } else {
+              console.log(`❌ FAILED: Error checking issue #${issueNumber}: ${error.message}`);
+              throw error;
+            }
+          }
+
+          console.log(`🎉 Branch validation passed!`);
+          console.log(`   ✅ Branch follows naming convention`);
+          console.log(`   ✅ Issue #${issueNumber} exists`);
+          console.log(`   ✅ Ready for development`);
+
+  # Conventional Commits Validation (embedded)
+  conventional-commits:
+    name: Conventional Commits Validation
+    runs-on: ubuntu-latest
+    needs: [controller, branch-validation]
+    if: |
+      needs.controller.outputs.should_run_ci == 'true' &&
+      (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install commitizen
+        run: pip install commitizen
+
+      - name: Validate commit messages
+        run: |
+          echo "🔍 Validating commit messages..."
+          echo "Event: ${{ github.event_name }}"
+          echo "SHA: ${{ github.sha }}"
+
+          # For workflow_call and simple validation, just check the HEAD commit
+          if [ "${{ github.event_name }}" = "workflow_call" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Validating HEAD commit for workflow_call/dispatch event"
+            COMMITS="${{ github.sha }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PR events, validate all commits in the PR
+            if [ -n "${{ github.event.pull_request.base.sha }}" ] && [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+              COMMITS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+              echo "Checking commits in PR range: $COMMITS"
+            else
+              echo "⚠️  PR context missing, checking HEAD commit only"
+              COMMITS="${{ github.sha }}"
+            fi
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] || [ -z "${{ github.event.before }}" ]; then
+            # New branch or missing before SHA, check only the latest commit
+            echo "New branch or missing before SHA, checking HEAD commit only"
+            COMMITS="${{ github.sha }}"
+          else
+            # Existing branch, check commits since last push
+            echo "Existing branch, checking commits since last push"
+            COMMITS="${{ github.event.before }}..${{ github.sha }}"
+          fi
+
+          echo "Checking commits: $COMMITS"
+
+          # Validate each commit in the range
+          for commit in $(git rev-list $COMMITS); do
+            echo ""
+            echo "🔍 Validating commit: $commit"
+            git log --format="%H %s" -n 1 $commit
+
+            # Get commit message
+            commit_msg=$(git log --format="%s" -n 1 $commit)
+
+            # Skip merge commits (they have different format requirements)
+            if echo "$commit_msg" | grep -qE '^Merge (pull request|branch)'; then
+              echo "⏭️  SKIPPED: Merge commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip GitHub PR merge commits (e.g., "Advanced filtering (#4)")
+            if echo "$commit_msg" | grep -qE '.+ \(#[0-9]+\)$'; then
+              echo "⏭️  SKIPPED: GitHub PR merge commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip Dependabot commits (they follow a different format)
+            if echo "$commit_msg" | grep -qE '^(Bump|Update|build\(deps\):)'; then
+              echo "⏭️  SKIPPED: Dependabot commit detected, skipping validation"
+              continue
+            fi
+
+            # Skip Dependabot commits with deps prefix
+            if echo "$commit_msg" | grep -qE '^deps(\([^)]+\))?: '; then
+              echo "⏭️  SKIPPED: Dependabot deps commit detected, skipping validation"
+              continue
+            fi
+
+            # Check if commit message follows conventional format
+            if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
+              echo "❌ FAILED: Commit $commit does not follow conventional commit format"
+              echo "   Message: $commit_msg"
+              echo ""
+              echo "📋 Conventional commit format: <type>[optional scope]: <description>"
+              echo "   Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
+              echo "   Example: feat(cli): add new dashboard command"
+              exit 1
+            else
+              echo "✅ PASSED: Commit $commit follows conventional format"
+            fi
+          done
+
+      - name: Validate PR title (Pull Request only)
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "🔍 Validating pull request title..."
+
+          pr_title="${{ github.event.pull_request.title }}"
+          echo "PR Title: $pr_title"
+
+          # More flexible PR title validation - allow descriptive titles
+          if echo "$pr_title" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?:'; then
+            echo "✅ PASSED: PR title follows conventional format"
+          elif echo "$pr_title" | grep -qE '^[🚀🔧🎯📊🔍🛠️💡⚡🎨📈]'; then
+            echo "✅ PASSED: PR title uses emoji prefix (acceptable for major features)"
+          else
+            echo "⚠️  WARNING: PR title doesn't follow conventional format, but this is acceptable for PRs"
+            echo "   Title: $pr_title"
+            echo ""
+            echo "💡 Recommended format: <type>[optional scope]: <description>"
+            echo "   Example: feat(cli): add new dashboard command"
+          fi
+
+      - name: Success message
+        run: |
+          echo "🎉 Commit message validation completed!"
+          echo ""
+          echo "📋 Conventional Commit Format:"
+          echo "   <type>[optional scope]: <description>"
+          echo ""
+          echo "🏷️  Available types:"
+          echo "   feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
+
+  # Main CI Pipeline
+  ci:
+    name: Continuous Integration
+    needs: [controller, branch-validation, conventional-commits]
+    if: |
+      needs.controller.outputs.should_run_ci == 'true' &&
+      (github.event.inputs.skip_tests != 'true') &&
+      (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
+      needs.conventional-commits.result == 'success'
+    uses: ./.github/workflows/ci.yml
+
+  # Security Analysis Pipeline (runs in parallel with CI)
+  security:
+    name: Security Analysis
+    needs: [controller, branch-validation, conventional-commits]
+    if: |
+      needs.controller.outputs.should_run_ci == 'true' &&
+      (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
+      needs.conventional-commits.result == 'success'
+    uses: ./.github/workflows/codeql.yml
+
+  # Release Pipeline (only on PR merges to main/master or manual dispatch)
+  release:
+    name: Release Pipeline
+    needs: [controller, branch-validation, conventional-commits, ci, security]
+    if: |
+      needs.controller.outputs.should_run_release == 'true' &&
+      (needs.branch-validation.result == 'success' || needs.branch-validation.result == 'skipped') &&
+      needs.conventional-commits.result == 'success' &&
+      (needs.ci.result == 'success' || needs.ci.result == 'skipped') &&
+      (needs.security.result == 'success' || needs.security.result == 'skipped')
+    uses: ./.github/workflows/release-please.yml
+    secrets: inherit
+
+  # Status Reporter
+  status:
+    name: Status Report
+    runs-on: ubuntu-latest
+    needs: [controller, branch-validation, conventional-commits, ci, security, release]
+    if: always()
+    steps:
+    - name: Report Status
+      run: |
+        echo "🎯 CI/CD Pipeline Status Report"
+        echo "================================"
+        echo "Branch: ${{ needs.controller.outputs.branch_name }}"
+        echo "Event: ${{ github.event_name }}"
+        echo "Is PR: ${{ needs.controller.outputs.is_pr }}"
+        echo "Is Main Branch: ${{ needs.controller.outputs.is_main_branch }}"
+        echo ""
+        echo "📋 Job Results:"
+        echo "  Controller: ${{ needs.controller.result }}"
+        echo "  Branch Validation: ${{ needs.branch-validation.result }}"
+        echo "  Conventional Commits: ${{ needs.conventional-commits.result }}"
+        echo "  CI: ${{ needs.ci.result }}"
+        echo "  Security: ${{ needs.security.result }}"
+        echo "  Release: ${{ needs.release.result }}"
+        echo ""
+
+        # Count failures and determine overall status
+        FAILURES=0
+        CRITICAL_FAILURES=""
+
+        # Check each job result - only count actual failures, not skipped jobs
+        if [ "${{ needs.controller.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES Controller"
+        fi
+
+        if [ "${{ needs.branch-validation.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES Branch-Validation"
+        fi
+
+        if [ "${{ needs.conventional-commits.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES Conventional-Commits"
+        fi
+
+        if [ "${{ needs.ci.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES CI"
+        fi
+
+        if [ "${{ needs.security.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES Security"
+        fi
+
+        if [ "${{ needs.release.result }}" = "failure" ]; then
+          FAILURES=$((FAILURES + 1))
+          CRITICAL_FAILURES="$CRITICAL_FAILURES Release"
+        fi
+
+        # Report overall status
+        if [ $FAILURES -eq 0 ]; then
+          echo "✅ SUCCESS: All workflows completed successfully"
+          echo "   No failures detected across all pipeline stages"
+        else
+          echo "❌ FAILED: $FAILURES workflow(s) failed"
+          echo "   Failed workflows:$CRITICAL_FAILURES"
+          echo ""
+          echo "🔍 Failure Analysis:"
+
+          if [ "${{ needs.controller.result }}" = "failure" ]; then
+            echo "   • Controller: Workflow orchestration failed"
+          fi
+
+          if [ "${{ needs.branch-validation.result }}" = "failure" ]; then
+            echo "   • Branch Validation: Branch name doesn't follow issue-XXX-description format or issue doesn't exist"
+          fi
+
+          if [ "${{ needs.conventional-commits.result }}" = "failure" ]; then
+            echo "   • Conventional Commits: Commit messages don't follow conventional format"
+          fi
+
+          if [ "${{ needs.ci.result }}" = "failure" ]; then
+            echo "   • CI: Build, test, or quality checks failed"
+          fi
+
+          if [ "${{ needs.security.result }}" = "failure" ]; then
+            echo "   • Security: CodeQL analysis or security audits found issues"
+          fi
+
+          if [ "${{ needs.release.result }}" = "failure" ]; then
+            echo "   • Release: Package creation or release process failed"
+          fi
+
+          exit 1
+        fi
+
+        echo ""
+        echo "📊 Pipeline Statistics:"
+        echo "   Total Jobs: 6"
+        echo "   Successful: $((6 - FAILURES))"
+        echo "   Failed: $FAILURES"
+        echo "   Success Rate: $(( (6 - FAILURES) * 100 / 6 ))%"
+
+  # Notification for failed releases (only on main branch)
+  notify-release-failure:
+    name: Notify Release Failure
+    runs-on: ubuntu-latest
+    needs: [controller, branch-validation, release]
+    if: |
+      always() &&
+      needs.controller.outputs.is_main_branch == 'true' &&
+      needs.release.result == 'failure'
+    steps:
+    - name: Create Issue for Release Failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const title = `🚨 Release Pipeline Failed - ${context.sha.substring(0, 7)}`;
+          const body = `
+          ## Release Pipeline Failure
+
+          **Branch:** \`${{ needs.controller.outputs.branch_name }}\`
+          **Commit:** \`${{ github.sha }}\`
+          **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          The release pipeline failed during execution. This requires immediate attention as it may block future releases.
+
+          ### Next Steps
+          1. Review the failed workflow logs
+          2. Fix any issues identified
+          3. Re-run the workflow or push a fix
+
+          ### Workflow Results
+          - Controller: ${{ needs.controller.result }}
+          - Branch Validation: ${{ needs.branch-validation.result }}
+          - Release: ${{ needs.release.result }}
+
+          ---
+          *This issue was automatically created by the CI/CD pipeline*
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            labels: ['bug', 'release', 'ci/cd', 'high-priority']
+          });
+
+  # Notification for security failures
+  notify-security-failure:
+    name: Notify Security Failure
+    runs-on: ubuntu-latest
+    needs: [controller, branch-validation, security]
+    if: |
+      always() &&
+      needs.security.result == 'failure'
+    steps:
+    - name: Create Issue for Security Failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const title = `🔒 Security Analysis Failed - ${context.sha.substring(0, 7)}`;
+          const body = `
+          ## Security Analysis Failure
+
+          **Branch:** \`${{ needs.controller.outputs.branch_name }}\`
+          **Commit:** \`${{ github.sha }}\`
+          **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          The security analysis pipeline failed during execution. This requires immediate attention as it may indicate security vulnerabilities or configuration issues.
+
+          ### Next Steps
+          1. Review the failed CodeQL and security audit logs
+          2. Address any security vulnerabilities identified
+          3. Fix configuration issues if present
+          4. Re-run the workflow or push a fix
+
+          ### Security Components
+          - CodeQL Analysis (Rust, Python, JavaScript)
+          - Security Audit (cargo-audit, cargo-deny)
+          - Supply Chain Security
+          - SBOM Generation
+
+          ### Workflow Results
+          - Controller: ${{ needs.controller.result }}
+          - Branch Validation: ${{ needs.branch-validation.result }}
+          - Security: ${{ needs.security.result }}
+
+          ---
+          *This issue was automatically created by the CI/CD pipeline*
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            labels: ['security', 'bug', 'ci/cd', 'high-priority']
+          });

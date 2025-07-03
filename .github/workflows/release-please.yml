@@ -1,16 +1,22 @@
-name: Release Please
+name: Release Please - Unified Release Pipeline
 
 on:
-  push:
-    branches:
-      - main
-      - master
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  # Release Please - Create release PRs and releases
   release-please:
     runs-on: ubuntu-latest
     outputs:
@@ -28,22 +34,617 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
 
-  # Trigger the release build workflow when a release is created
-  trigger-release:
+  # Release Configuration Tests - Run when release is created
+  release-config-tests:
     needs: release-please
     if: needs.release-please.outputs.release_created
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - name: Trigger Release Build
-        uses: actions/github-script@v7
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          script: |
-            github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'release.yml',
-              ref: 'main',
-              inputs: {
-                version: '${{ needs.release-please.outputs.tag_name }}'
-              }
-            }); 
+          python-version: '3.11'
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: config-test-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build obsctl
+        run: |
+          cargo build --release
+          ls -la target/release/obsctl
+
+      - name: Setup CI services with Docker Compose
+        run: |
+          echo "🚀 Starting CI services for release configuration tests..."
+          docker compose --env-file docker-compose.ci.env up -d minio otel-collector
+          echo "📋 Running CI services:"
+          docker compose ps
+
+      - name: Wait for services to be ready
+        run: |
+          echo "🔄 Waiting for MinIO to be ready..."
+          timeout 120 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 3; done'
+          echo "✅ MinIO is ready"
+
+          echo "🔄 Waiting for OTEL Collector to be ready..."
+          timeout 60 bash -c 'until curl -f http://localhost:8888/metrics; do sleep 2; done'
+          echo "✅ OTEL Collector is ready"
+
+      - name: Setup test environment
+        run: |
+          # Install MinIO client
+          wget https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          sudo mv mc /usr/local/bin/
+
+          # Configure MinIO client
+          mc alias set local http://localhost:9000 minioadmin minioadmin123
+          mc admin info local
+
+          # Create test AWS config directory
+          mkdir -p ~/.aws
+
+          # Set up test configurations
+          cat > ~/.aws/credentials << EOF
+          [default]
+          aws_access_key_id = minioadmin
+          aws_secret_access_key = minioadmin123
+          EOF
+
+          cat > ~/.aws/config << EOF
+          [default]
+          region = us-east-1
+          endpoint_url = http://localhost:9000
+          output = json
+          EOF
+
+          cat > ~/.aws/otel << EOF
+          [otel]
+          enabled = true
+          endpoint = http://localhost:4317
+          service_name = obsctl-release-test
+          EOF
+
+      - name: Run Release Configuration Tests
+        env:
+          AWS_ENDPOINT_URL: http://localhost:9000
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin123
+          AWS_DEFAULT_REGION: us-east-1
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
+          OTEL_SERVICE_NAME: obsctl-release-test
+        run: |
+          echo "🚀 Running comprehensive release configuration tests..."
+          python3 tests/release_config_tests.py --category all --workers 2 --timeout 1800
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-config-test-results
+          path: release_config_test_report.json
+          retention-days: 30
+
+      - name: Cleanup services
+        if: always()
+        run: |
+          mc rm --recursive --force local/ || true
+          docker compose --env-file docker-compose.ci.env down -v --remove-orphans
+          docker system prune -f
+
+  # Lint and code quality checks
+  lint:
+    needs: [release-please, release-config-tests]
+    if: needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: lint-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Check code formatting
+      run: cargo fmt -- --check
+
+    - name: Run Clippy lints
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Check for security vulnerabilities
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+  # Multi-platform builds with cross-compilation
+  build:
+    needs: [release-please, release-config-tests, lint]
+    if: needs.release-please.outputs.release_created
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds (x86_64, ARM64, ARMv7)
+          - platform: linux-amd64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            native: true
+            arch_name: amd64
+          - platform: linux-arm64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+            arch_name: arm64
+          - platform: linux-armv7
+            os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            cross: true
+            arch_name: armhf
+
+          # macOS builds (Intel x86_64, Apple Silicon ARM64)
+          - platform: macos-amd64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            native: true
+            arch_name: amd64
+          - platform: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            native: true
+            arch_name: arm64
+
+          # Windows builds (x86_64, ARM64, ARMv7 for IoT)
+          - platform: windows-amd64
+            os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            cross: true
+            arch_name: amd64
+            binary_ext: .exe
+          - platform: windows-arm64
+            os: ubuntu-latest
+            target: aarch64-pc-windows-gnullvm
+            cross: true
+            arch_name: arm64
+            binary_ext: .exe
+          - platform: windows-armv7
+            os: ubuntu-latest
+            target: armv7-pc-windows-gnueabi
+            cross: true
+            arch_name: armhf
+            binary_ext: .exe
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install target
+      run: rustup target add ${{ matrix.target }}
+
+    - name: Install cross-compilation tools
+      if: matrix.cross == true
+      run: |
+        cargo install cross --git https://github.com/cross-rs/cross
+
+    - name: Install native dependencies (cross-compilation)
+      if: matrix.cross == true
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-arm-linux-gnueabihf \
+          gcc-aarch64-linux-gnu \
+          mingw-w64 \
+          gcc-mingw-w64-x86-64 \
+          gcc-mingw-w64-i686 \
+          cmake \
+          pkg-config \
+          clang \
+          llvm
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: build-${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          build-${{ runner.os }}-${{ matrix.target }}-cargo-
+          build-${{ runner.os }}-cargo-
+
+    - name: Build binary
+      run: |
+        if [ "${{ matrix.cross }}" = "true" ]; then
+          echo "🔧 Cross-compiling for ${{ matrix.target }} on ${{ matrix.platform }}"
+          cross build --target ${{ matrix.target }} --release
+        else
+          echo "🏗️ Native build for ${{ matrix.target }} on ${{ matrix.platform }}"
+          cargo build --target ${{ matrix.target }} --release
+        fi
+      shell: bash
+
+    - name: Prepare release directory
+      run: |
+        mkdir -p release/${{ matrix.platform }}
+
+        # Copy binary with correct extension
+        BINARY_NAME="obsctl${{ matrix.binary_ext || '' }}"
+        cp target/${{ matrix.target }}/release/$BINARY_NAME release/${{ matrix.platform }}/
+
+        # Copy documentation and support files
+        cp README.md release/${{ matrix.platform }}/
+        cp LICENSE release/${{ matrix.platform }}/ || cp LICENSE.md release/${{ matrix.platform }}/ || echo "No LICENSE file found"
+        cp packaging/obsctl.1 release/${{ matrix.platform }}/
+        cp packaging/obsctl.bash-completion release/${{ matrix.platform }}/
+
+        # Copy dashboard files
+        mkdir -p release/${{ matrix.platform }}/dashboards
+        cp packaging/dashboards/*.json release/${{ matrix.platform }}/dashboards/
+
+        # Platform-specific packaging files for Linux
+        if [[ "${{ matrix.platform }}" == linux-* ]]; then
+          mkdir -p release/${{ matrix.platform }}/debian
+          cp packaging/debian/* release/${{ matrix.platform }}/debian/ 2>/dev/null || true
+        fi
+
+        # Show build info
+        echo "📦 Built for platform: ${{ matrix.platform }}"
+        echo "🎯 Target: ${{ matrix.target }}"
+        echo "🏗️ Architecture: ${{ matrix.arch_name }}"
+        ls -la release/${{ matrix.platform }}/
+      shell: bash
+
+    - name: Create platform archive
+      run: |
+        cd release
+        if [[ "${{ matrix.platform }}" == windows-* ]]; then
+          zip -r obsctl-${{ needs.release-please.outputs.tag_name }}-${{ matrix.platform }}.zip ${{ matrix.platform }}/
+          echo "📦 Created ZIP archive for Windows"
+        else
+          tar -czf obsctl-${{ needs.release-please.outputs.tag_name }}-${{ matrix.platform }}.tar.gz ${{ matrix.platform }}/
+          echo "📦 Created TAR.GZ archive for Unix-like OS"
+        fi
+      shell: bash
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: obsctl-${{ matrix.platform }}
+        path: release/obsctl-${{ needs.release-please.outputs.tag_name }}-${{ matrix.platform }}.*
+        retention-days: 7
+
+  # Create macOS Universal Binary
+  universal-binary:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created
+    runs-on: macos-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download macOS artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: obsctl-macos-*
+        merge-multiple: true
+
+    - name: Create Universal Binary
+      run: |
+        # Extract the macOS binaries
+        tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-macos-amd64.tar.gz
+        tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-macos-arm64.tar.gz
+
+        # Create universal binary directory
+        mkdir -p release/macos-universal
+
+        # Use lipo to create universal binary
+        lipo -create \
+          macos-amd64/obsctl \
+          macos-arm64/obsctl \
+          -output release/macos-universal/obsctl
+
+        # Copy support files
+        cp macos-amd64/README.md release/macos-universal/
+        cp macos-amd64/LICENSE* release/macos-universal/ 2>/dev/null || true
+        cp macos-amd64/obsctl.1 release/macos-universal/
+        cp macos-amd64/obsctl.bash-completion release/macos-universal/
+        cp -r macos-amd64/dashboards release/macos-universal/
+
+        # Verify universal binary
+        file release/macos-universal/obsctl
+        lipo -info release/macos-universal/obsctl
+
+    - name: Create Universal Binary archive
+      run: |
+        cd release
+        tar -czf obsctl-${{ needs.release-please.outputs.tag_name }}-macos-universal.tar.gz macos-universal/
+
+    - name: Upload Universal Binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: obsctl-macos-universal
+        path: release/obsctl-${{ needs.release-please.outputs.tag_name }}-macos-universal.tar.gz
+        retention-days: 7
+
+  # Create Debian packages for Linux platforms
+  debian-packages:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux-amd64
+            arch: amd64
+          - platform: linux-arm64
+            arch: arm64
+          - platform: linux-armv7
+            arch: armhf
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download Linux artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: obsctl-${{ matrix.platform }}
+
+    - name: Install packaging tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev fakeroot
+
+    - name: Create Debian package
+      run: |
+        # Extract the platform archive
+        tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-${{ matrix.platform }}.tar.gz
+
+        # Create Debian package structure
+        mkdir -p obsctl-deb/DEBIAN
+        mkdir -p obsctl-deb/usr/bin
+        mkdir -p obsctl-deb/usr/share/man/man1
+        mkdir -p obsctl-deb/usr/share/bash-completion/completions
+        mkdir -p obsctl-deb/usr/share/obsctl/dashboards
+
+        # Copy files
+        cp ${{ matrix.platform }}/obsctl obsctl-deb/usr/bin/
+        cp ${{ matrix.platform }}/obsctl.1 obsctl-deb/usr/share/man/man1/
+        cp ${{ matrix.platform }}/obsctl.bash-completion obsctl-deb/usr/share/bash-completion/completions/obsctl
+        cp ${{ matrix.platform }}/dashboards/*.json obsctl-deb/usr/share/obsctl/dashboards/
+
+        # Create control file
+        VERSION=$(echo "${{ needs.release-please.outputs.tag_name }}" | sed 's/^v//')
+        cat > obsctl-deb/DEBIAN/control << EOF
+        Package: obsctl
+        Version: ${VERSION}
+        Section: utils
+        Priority: optional
+        Architecture: ${{ matrix.arch }}
+        Maintainer: obsctl Team <team@obsctl.io>
+        Description: High-performance S3-compatible CLI tool with OpenTelemetry observability
+         Enterprise-grade S3-compatible CLI tool with advanced filtering, pattern matching,
+         and comprehensive OpenTelemetry observability integration.
+        EOF
+
+        # Copy postinst and prerm scripts if they exist
+        if [ -f "packaging/debian/postinst" ]; then
+          cp packaging/debian/postinst obsctl-deb/DEBIAN/
+          chmod 755 obsctl-deb/DEBIAN/postinst
+        fi
+
+        if [ -f "packaging/debian/prerm" ]; then
+          cp packaging/debian/prerm obsctl-deb/DEBIAN/
+          chmod 755 obsctl-deb/DEBIAN/prerm
+        fi
+
+        # Set permissions
+        chmod 755 obsctl-deb/usr/bin/obsctl
+
+        # Build package
+        fakeroot dpkg-deb --build obsctl-deb obsctl-${VERSION}-${{ matrix.arch }}.deb
+
+    - name: Upload Debian package
+      uses: actions/upload-artifact@v4
+      with:
+        name: obsctl-debian-${{ matrix.arch }}
+        path: obsctl-*.deb
+        retention-days: 7
+
+  # Create Chocolatey package for Windows
+  chocolatey-package:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: obsctl-windows-*
+        merge-multiple: true
+
+    - name: Create Chocolatey package
+      run: |
+        # Create package structure
+        New-Item -ItemType Directory -Force -Path "chocolatey"
+        New-Item -ItemType Directory -Force -Path "chocolatey/tools"
+        New-Item -ItemType Directory -Force -Path "chocolatey/legal"
+
+        # Extract Windows binaries (prioritize AMD64 for Chocolatey)
+        $amd64Archive = "obsctl-${{ needs.release-please.outputs.tag_name }}-windows-amd64.zip"
+        if (Test-Path $amd64Archive) {
+          Expand-Archive -Path $amd64Archive -DestinationPath "."
+          $checksum = (Get-FileHash $amd64Archive -Algorithm SHA256).Hash
+        } else {
+          Write-Error "AMD64 Windows archive not found for Chocolatey packaging"
+          exit 1
+        }
+
+        # Get version without 'v' prefix
+        $version = "${{ needs.release-please.outputs.tag_name }}" -replace '^v', ''
+        $year = Get-Date -Format "yyyy"
+
+        # Create nuspec from template
+        if (Test-Path "packaging/chocolatey/obsctl.nuspec.template") {
+          $nuspec = Get-Content "packaging/chocolatey/obsctl.nuspec.template" -Raw
+          $nuspec = $nuspec -replace '\{\{VERSION\}\}', $version
+          $nuspec = $nuspec -replace '\{\{YEAR\}\}', $year
+          $nuspec | Out-File "chocolatey/obsctl.nuspec" -Encoding UTF8
+        }
+
+        # Create install script from template
+        if (Test-Path "packaging/chocolatey/chocolateyinstall.ps1.template") {
+          $install = Get-Content "packaging/chocolatey/chocolateyinstall.ps1.template" -Raw
+          $install = $install -replace '\{\{VERSION\}\}', $version
+          $install = $install -replace '\{\{CHECKSUM\}\}', $checksum.ToLower()
+          $install | Out-File "chocolatey/tools/chocolateyinstall.ps1" -Encoding UTF8
+        }
+
+        # Copy uninstall script
+        if (Test-Path "packaging/chocolatey/chocolateyuninstall.ps1.template") {
+          Copy-Item "packaging/chocolatey/chocolateyuninstall.ps1.template" "chocolatey/tools/chocolateyuninstall.ps1"
+        }
+
+        # Create verification file
+        $verification = @"
+        VERIFICATION
+        Package can be verified by downloading:
+        AMD64: https://github.com/${{ github.repository }}/releases/download/${{ needs.release-please.outputs.tag_name }}/obsctl-${{ needs.release-please.outputs.tag_name }}-windows-amd64.zip
+
+        Checksum: $($checksum.ToLower())
+        "@
+        $verification | Out-File "chocolatey/legal/VERIFICATION.txt" -Encoding UTF8
+
+    - name: Upload Chocolatey package files
+      uses: actions/upload-artifact@v4
+      with:
+        name: chocolatey-package
+        path: chocolatey/
+        retention-days: 7
+
+  # Create GitHub release with all artifacts
+  github-release:
+    needs: [release-please, release-config-tests, build, universal-binary, debian-packages, chocolatey-package]
+    if: needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.release-please.outputs.tag_name }}
+        name: Release ${{ needs.release-please.outputs.tag_name }}
+        body: |
+          ## 🚀 obsctl ${{ needs.release-please.outputs.tag_name }}
+
+          Enterprise-grade S3-compatible CLI tool with advanced filtering, pattern matching, and OpenTelemetry observability.
+
+          ### 📦 Downloads
+
+          #### Linux Binaries
+          - **Linux AMD64/x86_64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-amd64.tar.gz`
+          - **Linux ARM64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-arm64.tar.gz`
+          - **Linux ARMv7**: `obsctl-${{ needs.release-please.outputs.tag_name }}-linux-armv7.tar.gz`
+
+          #### Windows Binaries
+          - **Windows AMD64/x86_64**: `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-amd64.zip`
+          - **Windows ARM64** (Windows on ARM): `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-arm64.zip`
+          - **Windows ARMv7** (Windows IoT): `obsctl-${{ needs.release-please.outputs.tag_name }}-windows-armv7.zip`
+
+          #### macOS Binaries
+          - **macOS AMD64/Intel**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-amd64.tar.gz`
+          - **macOS ARM64/Apple Silicon**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-arm64.tar.gz`
+          - **macOS Universal Binary**: `obsctl-${{ needs.release-please.outputs.tag_name }}-macos-universal.tar.gz`
+
+          #### Package Managers
+          - **Debian/Ubuntu**: `obsctl-*-amd64.deb`, `obsctl-*-arm64.deb`, `obsctl-*-armhf.deb`
+          - **Chocolatey**: See chocolatey-package artifact (AMD64 only)
+
+          ### 🔧 Installation
+
+          ```bash
+          # Linux AMD64 (extract and copy to PATH)
+          tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-linux-amd64.tar.gz
+          sudo cp linux-amd64/obsctl /usr/local/bin/
+
+          # Linux ARM64 (Raspberry Pi 4, AWS Graviton, etc.)
+          tar -xzf obsctl-${{ needs.release-please.outputs.tag_name }}-linux-arm64.tar.gz
+          sudo cp linux-arm64/obsctl /usr/local/bin/
+
+          # Debian/Ubuntu
+          sudo dpkg -i obsctl-*-amd64.deb    # For x86_64
+          sudo dpkg -i obsctl-*-arm64.deb    # For ARM64
+          sudo dpkg -i obsctl-*-armhf.deb    # For ARMv7
+
+          # Windows PowerShell (extract to PATH)
+          Expand-Archive obsctl-*-windows-amd64.zip
+          # Copy obsctl.exe to a directory in your PATH
+
+          # macOS (Universal Binary recommended)
+          tar -xzf obsctl-*-macos-universal.tar.gz
+          sudo cp macos-universal/obsctl /usr/local/bin/
+          ```
+
+          ### ✨ Features
+          - 🔍 Advanced filtering with 11 CLI flags
+          - 🎨 Intelligent pattern matching (wildcards + regex)
+          - 📊 Complete OpenTelemetry observability
+          - 🛠️ Universal S3 compatibility
+          - 🚀 Cross-platform support (9 architectures)
+
+          ### 🏗️ Platform Support
+          - **Linux**: AMD64, ARM64, ARMv7 (Raspberry Pi, embedded systems)
+          - **Windows**: AMD64, ARM64 (Surface Pro X, Snapdragon PCs), ARMv7 (IoT devices)
+          - **macOS**: Intel, Apple Silicon, Universal Binary
+
+          ### ✅ Quality Assurance
+          - ✅ Release configuration tests passed
+          - ✅ Cross-platform builds validated
+          - ✅ Security audit completed
+          - ✅ All 9 target platforms supported
+        files: |
+          obsctl-${{ needs.release-please.outputs.tag_name }}-*.tar.gz
+          obsctl-${{ needs.release-please.outputs.tag_name }}-*.zip
+          obsctl-*.deb
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

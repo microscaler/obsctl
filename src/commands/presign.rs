@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::info;
+use opentelemetry::trace::{Span, Tracer};
 use std::time::Instant;
 
 use crate::commands::s3_uri::{is_s3_uri, S3Uri};
@@ -11,6 +12,21 @@ pub async fn execute(
     expires_in: u64,
     method: Option<&str>,
 ) -> Result<()> {
+    // Create a span for the presign operation
+    let tracer = opentelemetry::global::tracer("obsctl");
+    let mut span = tracer
+        .span_builder("presign_operation")
+        .with_attributes(vec![
+            opentelemetry::KeyValue::new("operation", "presign"),
+            opentelemetry::KeyValue::new("s3_uri", s3_uri.to_string()),
+            opentelemetry::KeyValue::new("expires_in", expires_in as i64),
+            opentelemetry::KeyValue::new("method", method.unwrap_or("").to_string()),
+        ])
+        .start(&tracer);
+
+    // Add an event to the span
+    span.add_event("presign_operation_started", vec![]);
+
     let start_time = Instant::now();
 
     if !is_s3_uri(s3_uri) {
@@ -41,43 +57,46 @@ pub async fn execute(
         )),
     };
 
-    // Record presign operation using proper OTEL SDK
-    match result {
-        Ok(_) => {
-            let duration = start_time.elapsed();
+    let duration = start_time.elapsed();
 
-            {
-                use crate::otel::OTEL_INSTRUMENTS;
-                use opentelemetry::KeyValue;
+    // Record overall presign operation metrics using proper OTEL SDK
+    {
+        use crate::otel::OTEL_INSTRUMENTS;
+        use opentelemetry::KeyValue;
 
-                let operation_type = format!("presign_{}", method.to_lowercase());
+        // Record duration
+        let duration_seconds = duration.as_millis() as f64 / 1000.0;
+        OTEL_INSTRUMENTS
+            .operation_duration
+            .record(duration_seconds, &[KeyValue::new("operation", "presign")]);
 
-                OTEL_INSTRUMENTS
-                    .operations_total
-                    .add(1, &[KeyValue::new("operation", operation_type.clone())]);
-
-                let duration_seconds = duration.as_millis() as f64 / 1000.0;
-                OTEL_INSTRUMENTS.operation_duration.record(
-                    duration_seconds,
-                    &[KeyValue::new("operation", operation_type)],
+        // Record success/failure
+        match &result {
+            Ok(_) => {
+                log::debug!("Presign operation completed successfully in {duration:?}");
+                span.add_event(
+                    "presign_operation_completed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "success"),
+                        opentelemetry::KeyValue::new("duration_ms", duration.as_millis() as i64),
+                    ],
                 );
             }
-
-            Ok(())
-        }
-        Err(e) => {
-            // Record error using proper OTEL SDK
-            {
-                use crate::otel::OTEL_INSTRUMENTS;
-
-                let error_msg =
-                    format!("Failed to generate presigned URL for {s3_uri} ({method}): {e}");
-                OTEL_INSTRUMENTS.record_error_with_type(&error_msg);
+            Err(e) => {
+                OTEL_INSTRUMENTS.record_error_with_type(&e.to_string());
+                span.add_event(
+                    "presign_operation_failed",
+                    vec![
+                        opentelemetry::KeyValue::new("status", "error"),
+                        opentelemetry::KeyValue::new("error", e.to_string()),
+                    ],
+                );
             }
-
-            Err(e)
         }
     }
+
+    span.end();
+    result
 }
 
 async fn generate_get_presigned_url(
@@ -278,7 +297,10 @@ mod tests {
                 endpoint: None,
                 service_name: "obsctl-test".to_string(),
                 service_version: crate::get_service_version(),
+                read_operations: false,
             },
+            loki: crate::config::LokiConfig::default(),
+            jaeger: crate::config::JaegerConfig::default(),
         }
     }
 

@@ -221,9 +221,14 @@ class UserSimulator:
         self.user_config = user_config
         self.bucket = user_config['bucket']
         self.user_temp_dir = os.path.join(TEMP_DIR, user_id)
+        self.config_method = user_config.get('config_method', 'env_vars')
         os.makedirs(self.user_temp_dir, exist_ok=True)
         self.logger = self.setup_user_logger()
         self.user_stopped = Event()  # 🔥 CRITICAL FIX: Individual user stop event
+
+        # 🚀 NEW: Setup AWS config for this user if using config files
+        if self.config_method == 'config_file':
+            self.setup_aws_config()
 
         # 🚀 NEW: Subfolder management
         self.subfolder_templates = SUBFOLDER_TEMPLATES.get(self.bucket, ['files'])
@@ -242,6 +247,51 @@ class UserSimulator:
                     'bytes_transferred': 0, 'files_created': 0, 'large_files': 0,
                     'subfolders_used': 0, 'disk_space_checks': 0
                 }
+
+    def setup_aws_config(self):
+        """Setup AWS config files for this user"""
+        # Create user-specific .aws directory (AWS-only configs)
+        aws_dir = os.path.join(self.user_temp_dir, '.aws')
+        os.makedirs(aws_dir, exist_ok=True)
+
+        # Create credentials file
+        credentials_file = os.path.join(aws_dir, 'credentials')
+        with open(credentials_file, 'w') as f:
+            f.write(f"[default]\n")
+            f.write(f"aws_access_key_id = minioadmin\n")
+            f.write(f"aws_secret_access_key = minioadmin123\n")
+
+        # Create config file (AWS-specific only)
+        config_file = os.path.join(aws_dir, 'config')
+        with open(config_file, 'w') as f:
+            f.write(f"[default]\n")
+            f.write(f"region = us-east-1\n")
+            f.write(f"endpoint_url = {MINIO_ENDPOINT}\n")
+
+        # Create user-specific .obsctl directory (obsctl-specific configs)
+        obsctl_dir = os.path.join(self.user_temp_dir, '.obsctl')
+        os.makedirs(obsctl_dir, exist_ok=True)
+
+        # Create OTEL config file in .obsctl directory
+        otel_file = os.path.join(obsctl_dir, 'otel')
+        with open(otel_file, 'w') as f:
+            f.write(f"[otel]\n")
+            f.write(f"enabled = true\n")
+            f.write(f"endpoint = http://localhost:4317\n")
+            f.write(f"service_name = obsctl-{self.user_id}\n")
+
+        # Create Loki config file in .obsctl directory
+        loki_file = os.path.join(obsctl_dir, 'loki')
+        with open(loki_file, 'w') as f:
+            f.write(f"[loki]\n")
+            f.write(f"enabled = true\n")
+            f.write(f"endpoint = http://localhost:3100\n")
+            f.write(f"log_level = info\n")
+            f.write(f"label_user_id = {self.user_id}\n")
+            f.write(f"label_service = obsctl-traffic\n")
+            f.write(f"label_environment = development\n")
+
+        self.logger.info(f"Created AWS + obsctl config files for {self.user_id} (method: {self.config_method})")
 
     def setup_user_logger(self):
         """Setup logger for this specific user"""
@@ -585,12 +635,22 @@ class UserSimulator:
         """Perform download operation"""
         try:
             # List files in user's bucket
+            env = dict(os.environ)
+
+            if self.config_method == 'env_vars':
+                env.update(OBSCTL_ENV)
+            else:
+                aws_dir = os.path.join(self.user_temp_dir, '.aws')
+                env['AWS_CONFIG_FILE'] = os.path.join(aws_dir, 'config')
+                env['AWS_SHARED_CREDENTIALS_FILE'] = os.path.join(aws_dir, 'credentials')
+                env['HOME'] = self.user_temp_dir
+
             result = subprocess.run(
                 [OBSCTL_BINARY, 'ls', f's3://{self.bucket}/'],
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env=dict(os.environ)
+                env=env
             )
 
             if result.returncode != 0:
@@ -653,11 +713,28 @@ class UserSimulator:
             return False
 
     def run_obsctl_command(self, args):
-        """Run obsctl command with proper environment"""
+        """Run obsctl command with proper environment based on config method"""
         cmd = [OBSCTL_BINARY] + args
         try:
             env = dict(os.environ)
-            env.update(OBSCTL_ENV)
+
+            if self.config_method == 'env_vars':
+                # Use environment variables
+                env.update(OBSCTL_ENV)
+                self.logger.debug(f"Using environment variables for {self.user_id}")
+            else:
+                # Use config files on disk - set paths to user-specific locations
+                aws_dir = os.path.join(self.user_temp_dir, '.aws')
+                obsctl_dir = os.path.join(self.user_temp_dir, '.obsctl')
+
+                # AWS configuration
+                env['AWS_CONFIG_FILE'] = os.path.join(aws_dir, 'config')
+                env['AWS_SHARED_CREDENTIALS_FILE'] = os.path.join(aws_dir, 'credentials')
+
+                # obsctl configuration (set HOME to user temp dir so obsctl finds ~/.obsctl)
+                env['HOME'] = self.user_temp_dir
+
+                self.logger.debug(f"Using config files for {self.user_id}: AWS={env['AWS_CONFIG_FILE']}, obsctl={obsctl_dir}")
 
             result = subprocess.run(
                 cmd,
@@ -702,7 +779,14 @@ class UserSimulator:
             # Check if bucket exists by listing it
             try:
                 env = dict(os.environ)
-                env.update(OBSCTL_ENV)
+
+                if self.config_method == 'env_vars':
+                    env.update(OBSCTL_ENV)
+                else:
+                    aws_dir = os.path.join(self.user_temp_dir, '.aws')
+                    env['AWS_CONFIG_FILE'] = os.path.join(aws_dir, 'config')
+                    env['AWS_SHARED_CREDENTIALS_FILE'] = os.path.join(aws_dir, 'credentials')
+                    env['HOME'] = self.user_temp_dir
 
                 result = subprocess.run(
                     [OBSCTL_BINARY, 'ls', f's3://{self.bucket}/'],
@@ -740,6 +824,7 @@ class UserSimulator:
         global running
 
         self.logger.info(f"Starting user simulation: {self.user_config['description']}")
+        self.logger.info(f"Configuration method: {self.config_method}")
 
         # Create user's bucket
         self.ensure_bucket_exists()
@@ -911,15 +996,29 @@ class ConcurrentTrafficGenerator:
             self.logger.info(f"  Remaining: {max(0, total_target - current_total):,} files")
 
             self.logger.info("\n👥 PER-USER STATISTICS:")
+            env_users = []
+            config_users = []
+
             for user_id, stats in user_stats.items():
                 user_config = USERS[user_id]
+                config_method = user_config.get('config_method', 'env_vars')
+
+                if config_method == 'env_vars':
+                    env_users.append(user_id)
+                else:
+                    config_users.append(user_id)
+
                 total_files = stats['files_created']
                 subfolders = stats.get('subfolders_used', 0)
                 disk_checks = stats.get('disk_space_checks', 0)
 
-                self.logger.info(f"  {user_id:15} | Files: {total_files:4,} | Subfolders: {subfolders:3} |")
+                self.logger.info(f"  {user_id:15} | Files: {total_files:4,} | Subfolders: {subfolders:3} | Config: {config_method}")
                 self.logger.info(f"    Ops: {stats['operations']:4,} | Errors: {stats['errors']:2} | Disk Checks: {disk_checks:2}")
                 self.logger.info(f"    Bytes: {stats['bytes_transferred']:,}")
+
+            self.logger.info(f"\n🔧 CONFIGURATION METHODS:")
+            self.logger.info(f"  Environment Variables: {len(env_users)} users ({', '.join(env_users)})")
+            self.logger.info(f"  Config Files on Disk: {len(config_users)} users ({', '.join(config_users)})")
 
         self.logger.info("=" * 60)
 

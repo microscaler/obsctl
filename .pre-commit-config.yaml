@@ -1,13 +1,26 @@
 # Pre-commit hooks for obsctl - Essential quality gates
+#
+# ⚠️  IMPORTANT: Direct pushes to main/master are BLOCKED by branch protection rules
+# All changes must go through pull requests with full CI/CD validation
+#
+# Development Process:
+# 1. Create feature branch: git checkout -b issue-XXX-description
+# 2. Make changes and commit (pre-commit hooks run automatically)
+# 3. Push feature branch: git push origin issue-XXX-description
+# 4. Create pull request (triggers full CI/CD pipeline)
+# 5. Merge only through approved PR
+#
 repos:
-  # Basic file checks
+  # Basic file checks (only run locally to prevent CI modifications)
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
       - id: trailing-whitespace
         exclude: '\.md$'
+        stages: [pre-commit]  # Only run locally
       - id: end-of-file-fixer
         exclude: '\.md$'
+        stages: [pre-commit]  # Only run locally
       - id: check-yaml
         args: ['--unsafe']
       - id: check-toml
@@ -22,23 +35,45 @@ repos:
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
-        args: ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert", "--optional-scopes", "api,cli,otel,config,packaging,ci,docs,tests", "--strict"]
+        args: ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert"]
 
   # Rust-specific hooks (essential only)
   - repo: local
     hooks:
       - id: cargo-fmt
         name: Cargo Format Check
-        entry: cargo fmt
-        args: ["--all", "--check"]
+        entry: cargo fmt --all -- --check
         language: system
         types: [rust]
         pass_filenames: false
 
+      # AUTO-FIX CLIPPY ISSUES THEN STRICT CHECK - ZERO WARNINGS ALLOWED
+      - id: cargo-clippy-auto-fix-strict
+        name: Cargo Clippy Auto-Fix + Strict Check
+        entry: |
+          bash -c '
+          echo "🔧 Auto-fixing clippy issues...";
+          ./scripts/fix-clippy.sh;
+          echo "✅ Auto-fixes applied";
+          echo "🔍 Checking for remaining unfixable issues...";
+          output=$(cargo clippy --all-targets --all-features -- -D warnings 2>&1);
+          if [ $? -ne 0 ]; then
+            echo "$output";
+            echo "❌ COMMIT BLOCKED: Unfixable clippy warnings/errors detected!";
+            echo "🛠️  Manual fixes required for remaining issues! The regression is likely due to a new clippy lint. Please keep the codebase hygenic!";
+            exit 1;
+          else
+            echo "✅ All clippy issues resolved!";
+          fi
+          '
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Regular compilation check
       - id: cargo-check
         name: Cargo Check Compilation
-        entry: cargo check
-        args: ["--all-targets", "--all-features"]
+        entry: cargo check --all-targets --all-features
         language: system
         types: [rust]
         pass_filenames: false

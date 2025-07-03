@@ -67,6 +67,46 @@ services:
     profiles:
       - ${PROMETHEUS_PROFILE:-default}
 
+  # Loki for log aggregation (OPTIONAL - use 'logging' profile)
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: obsctl-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./.docker/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - obsctl-network
+    mem_limit: ${LOKI_MEM_LIMIT:-512m}
+    cpus: ${LOKI_CPUS:-0.5}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - logging
+      - ${LOKI_PROFILE:-logging}
+
+  # Promtail for log collection (OPTIONAL - use 'logging' profile)
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: obsctl-promtail
+    volumes:
+      - ./.docker/promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /tmp/obsctl:/tmp/obsctl:ro  # obsctl error logs
+      - promtail_positions:/tmp/positions
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - obsctl-network
+    mem_limit: ${PROMTAIL_MEM_LIMIT:-256m}
+    cpus: ${PROMTAIL_CPUS:-0.25}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    profiles:
+      - logging
+      - ${PROMTAIL_PROFILE:-logging}
+
   # Grafana for visualization
   grafana:
     image: grafana/grafana:10.2.0
@@ -133,6 +173,8 @@ volumes:
   prometheus_data:
   grafana_data:
   minio_data:
+  loki_data:
+  promtail_positions:
 
 networks:
   obsctl-network:
