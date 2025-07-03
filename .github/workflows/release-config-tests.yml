@@ -1,0 +1,223 @@
+name: Release Configuration Tests
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Test category to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - credentials
+          - config
+          - otel
+          - mixed
+
+jobs:
+  release-config-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build obsctl
+        run: |
+          cargo build --release
+          ls -la target/release/obsctl
+
+      - name: Setup CI services with Docker Compose
+        run: |
+          echo "🚀 Starting CI services using main docker-compose.yml with CI overrides..."
+
+          # Use the main docker-compose.yml with CI environment overrides
+          # Start only MinIO and OTEL collector with lightweight settings
+          docker compose --env-file docker-compose.ci.env up -d minio otel-collector
+
+          # Show running containers
+          echo "📋 Running CI services:"
+          docker compose ps
+
+      - name: Wait for services to be ready
+        run: |
+          echo "🔄 Waiting for MinIO to be ready..."
+          timeout 120 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 3; done'
+          echo "✅ MinIO is ready"
+
+          echo "🔄 Waiting for OTEL Collector to be ready..."
+          timeout 60 bash -c 'until curl -f http://localhost:8888/metrics; do sleep 2; done'
+          echo "✅ OTEL Collector is ready"
+
+          # Show service logs for debugging
+          echo "📋 Service status:"
+          docker compose logs --tail=10
+
+      - name: Setup MinIO client and test connectivity
+        run: |
+          # Install MinIO client
+          wget https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          sudo mv mc /usr/local/bin/
+
+          # Configure MinIO client
+          mc alias set local http://localhost:9000 minioadmin minioadmin123
+
+          # Verify connection and show info
+          mc admin info local
+
+          # Create a test bucket to verify functionality
+          mc mb local/test-connectivity
+          echo "Test file with UUID: $(uuidgen)" > connectivity-test.txt
+          mc cp connectivity-test.txt local/test-connectivity/
+          mc ls local/test-connectivity/
+          mc rm local/test-connectivity/connectivity-test.txt
+          mc rb local/test-connectivity
+          rm connectivity-test.txt
+          echo "✅ MinIO connectivity verified"
+
+      - name: Setup test environment
+        run: |
+          # Create test AWS config directory
+          mkdir -p ~/.aws
+
+          # Set up test AWS credentials for MinIO
+          cat > ~/.aws/credentials << EOF
+          [default]
+          aws_access_key_id = minioadmin
+          aws_secret_access_key = minioadmin123
+          EOF
+
+          # Set up test AWS config
+          cat > ~/.aws/config << EOF
+          [default]
+          region = us-east-1
+          endpoint_url = http://localhost:9000
+          output = json
+          EOF
+
+          # Set up test OTEL config
+          cat > ~/.aws/otel << EOF
+          [otel]
+          enabled = true
+          endpoint = http://localhost:4317
+          service_name = obsctl-ci-test
+          EOF
+
+          echo "✅ Test environment setup complete"
+
+      - name: Run Release Configuration Tests
+        env:
+          AWS_ENDPOINT_URL: http://localhost:9000
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin123
+          AWS_DEFAULT_REGION: us-east-1
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
+          OTEL_SERVICE_NAME: obsctl-ci-test
+        run: |
+          echo "🚀 Starting Release Configuration Tests"
+          echo "📊 Test category: ${{ github.event.inputs.category || 'all' }}"
+          echo "🐳 Using single docker-compose.yml with CI environment overrides"
+
+          # Show resource usage before tests
+          echo "📊 Resource usage before tests:"
+          docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+
+          # Run the comprehensive configuration tests
+          python3 tests/release_config_tests.py \
+            --category "${{ github.event.inputs.category || 'all' }}" \
+            --workers 2 \
+            --timeout 1800
+
+          echo "✅ Tests completed"
+
+      - name: Show service resource usage
+        if: always()
+        run: |
+          echo "📊 Final resource usage:"
+          docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
+
+          echo "📋 Service logs (last 20 lines):"
+          docker compose logs --tail=20
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-config-test-results
+          path: |
+            release_config_test_report.json
+          retention-days: 30
+
+      - name: Test results summary
+        if: always()
+        run: |
+          if [ -f release_config_test_report.json ]; then
+            echo "📊 Test Results Summary:"
+            python3 -c "
+          import json
+          with open('release_config_test_report.json', 'r') as f:
+              report = json.load(f)
+              summary = report['summary']
+              print(f'✅ Passed: {summary[\"passed_tests\"]}')
+              print(f'❌ Failed: {summary[\"failed_tests\"]}')
+              print(f'💥 Errors: {summary[\"error_tests\"]}')
+              print(f'📈 Pass Rate: {summary[\"pass_rate\"]:.1f}%')
+              print(f'⏱️ Total Time: {summary[\"total_time\"]:.2f}s')
+          "
+          else
+            echo "❌ No test report found"
+          fi
+
+      - name: Cleanup services
+        if: always()
+        run: |
+          echo "🧹 Cleaning up CI services..."
+
+          # Clean up any test data in MinIO
+          mc rm --recursive --force local/ || true
+
+          # Stop and remove containers using the same environment
+          docker compose --env-file docker-compose.ci.env down -v --remove-orphans
+
+          # Clean up any remaining containers/networks
+          docker system prune -f
+
+          echo "✅ Cleanup complete"
+
+  # Optional: Notify on failure for release tags
+  notify-failure:
+    needs: release-config-tests
+    runs-on: ubuntu-latest
+    if: failure() && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Notify release test failure
+        run: |
+          echo "❌ Release configuration tests failed for tag: ${{ github.ref_name }}"
+          echo "This indicates potential configuration issues that need to be resolved before release."
+          echo "Check the test results artifact for detailed failure information."
+          exit 1

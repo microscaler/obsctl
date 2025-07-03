@@ -4,6 +4,29 @@
 default:
   just check
 
+# Development setup: install pre-commit hooks and configure git
+setup:
+  @echo "🔧 Setting up development environment..."
+  pre-commit install
+  pre-commit install --hook-type commit-msg
+  git config commit.template .gitmessage
+  @echo "✅ Pre-commit hooks installed"
+  @echo "✅ Git commit template configured"
+  @echo "💡 Use 'git commit' (without -m) to see the conventional commit template"
+
+# Install pre-commit hooks only
+hooks:
+  pre-commit install
+  pre-commit install --hook-type commit-msg
+
+# Run all pre-commit hooks manually
+lint-all:
+  pre-commit run --all-files
+
+# Update pre-commit hooks to latest versions
+update-hooks:
+  pre-commit autoupdate
+
 # Format and lint
 check:
   cargo fmt --all -- --check

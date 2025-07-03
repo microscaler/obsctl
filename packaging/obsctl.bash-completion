@@ -1,0 +1,90 @@
+_obsctl_completions()
+{
+    local cur prev opts commands
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # Main commands
+    commands="ls cp sync rm mb rb presign head-object du help"
+
+    # Global options
+    global_opts="--debug --endpoint --region --timeout --help --version"
+
+    # Command-specific options
+    ls_opts="--long --recursive --human-readable --summarize --pattern"
+    cp_opts="--recursive --dryrun --max-concurrent --force --include --exclude"
+    sync_opts="--delete --dryrun --max-concurrent --include --exclude"
+    rm_opts="--recursive --dryrun --include --exclude"
+    mb_opts=""
+    rb_opts="--force --all --confirm --pattern"
+    presign_opts="--expires-in"
+    head_object_opts="--bucket --key"
+    du_opts="--human-readable --summarize"
+
+    # If we're completing the first argument after obsctl
+    if [[ ${COMP_CWORD} -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+        return 0
+    fi
+
+    # Get the command (second word)
+    local command="${COMP_WORDS[1]}"
+
+    # Handle global options for any command
+    if [[ ${cur} == -* ]]; then
+        case "${command}" in
+            ls)
+                COMPREPLY=( $(compgen -W "${global_opts} ${ls_opts}" -- ${cur}) )
+                ;;
+            cp)
+                COMPREPLY=( $(compgen -W "${global_opts} ${cp_opts}" -- ${cur}) )
+                ;;
+            sync)
+                COMPREPLY=( $(compgen -W "${global_opts} ${sync_opts}" -- ${cur}) )
+                ;;
+            rm)
+                COMPREPLY=( $(compgen -W "${global_opts} ${rm_opts}" -- ${cur}) )
+                ;;
+            mb)
+                COMPREPLY=( $(compgen -W "${global_opts} ${mb_opts}" -- ${cur}) )
+                ;;
+            rb)
+                COMPREPLY=( $(compgen -W "${global_opts} ${rb_opts}" -- ${cur}) )
+                ;;
+            presign)
+                COMPREPLY=( $(compgen -W "${global_opts} ${presign_opts}" -- ${cur}) )
+                ;;
+            head-object)
+                COMPREPLY=( $(compgen -W "${global_opts} ${head_object_opts}" -- ${cur}) )
+                ;;
+            du)
+                COMPREPLY=( $(compgen -W "${global_opts} ${du_opts}" -- ${cur}) )
+                ;;
+            *)
+                COMPREPLY=( $(compgen -W "${global_opts}" -- ${cur}) )
+                ;;
+        esac
+        return 0
+    fi
+
+    # Handle S3 URI completion (basic s3:// prefix)
+    if [[ ${cur} == s3://* ]]; then
+        # Could be enhanced to list actual buckets/objects
+        COMPREPLY=( $(compgen -W "s3://" -- ${cur}) )
+        return 0
+    fi
+
+    # Handle file/directory completion for local paths
+    case "${command}" in
+        cp|sync)
+            # For cp and sync, complete files and directories
+            COMPREPLY=( $(compgen -f -- ${cur}) )
+            ;;
+        *)
+            # Default to no completion
+            ;;
+    esac
+}
+
+complete -F _obsctl_completions obsctl

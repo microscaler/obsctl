@@ -1,0 +1,53 @@
+# Chocolatey install script for obsctl
+# This script is executed when 'choco install obsctl' is run
+
+$ErrorActionPreference = 'Stop'
+
+# Package information
+$packageName = 'obsctl'
+$toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
+$url64 = 'https://github.com/your-org/obsctl/releases/download/v{{VERSION}}/obsctl-{{VERSION}}-windows-x64.zip'
+$checksum64 = '{{CHECKSUM}}'
+
+# Package arguments for Chocolatey
+$packageArgs = @{
+  packageName   = $packageName
+  unzipLocation = $toolsDir
+  url64bit      = $url64
+  checksum64    = $checksum64
+  checksumType64= 'sha256'
+}
+
+# Download and extract the package
+Install-ChocolateyZipPackage @packageArgs
+
+# Add obsctl to system PATH
+$obsctlPath = Join-Path $toolsDir "windows-x64"
+Install-ChocolateyPath $obsctlPath -PathType 'Machine'
+
+# Success message and quick start guide
+Write-Host "obsctl has been installed successfully!" -ForegroundColor Green
+Write-Host ""
+Write-Host "Quick start:" -ForegroundColor Yellow
+Write-Host "  obsctl config configure          # Configure AWS credentials" -ForegroundColor White
+Write-Host "  obsctl config dashboard install  # Install Grafana dashboards" -ForegroundColor White
+Write-Host "  obsctl ls s3://my-bucket/        # List bucket contents" -ForegroundColor White
+Write-Host ""
+Write-Host "Configuration examples:" -ForegroundColor Yellow
+Write-Host "  obsctl config --help             # Show configuration options" -ForegroundColor White
+Write-Host "  obsctl config --example          # Show AWS config examples" -ForegroundColor White
+Write-Host "  obsctl config --env              # Show environment variables" -ForegroundColor White
+Write-Host ""
+Write-Host "Documentation: https://github.com/your-org/obsctl" -ForegroundColor Cyan
+Write-Host "Issues: https://github.com/your-org/obsctl/issues" -ForegroundColor Cyan
+
+# Verify installation
+try {
+    $version = & "$obsctlPath\obsctl.exe" --version 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host ""
+        Write-Host "Installation verified: $version" -ForegroundColor Green
+    }
+} catch {
+    Write-Warning "Could not verify installation. Please restart your terminal and try 'obsctl --version'"
+} 

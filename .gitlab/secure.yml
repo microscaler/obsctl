@@ -40,4 +40,3 @@ dependency_scanning:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: always
     - when: never
-

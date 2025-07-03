@@ -5,7 +5,29 @@ set -e
 # This can reload systemd if desired or setup defaults
 
 echo "obsctl installed."
+
+# Set proper permissions for dashboard files
+if [ -d "/usr/share/obsctl/dashboards" ]; then
+    echo "Setting permissions for dashboard files..."
+    chmod 644 /usr/share/obsctl/dashboards/*.json
+    chown root:root /usr/share/obsctl/dashboards/*.json
+fi
+
+# Set permissions for config template
+if [ -f "/etc/obsctl/config" ]; then
+    chmod 644 /etc/obsctl/config
+    chown root:root /etc/obsctl/config
+fi
+
 if command -v systemctl >/dev/null; then
   echo "Reloading systemd daemon..."
   systemctl daemon-reexec
 fi
+
+echo ""
+echo "obsctl Dashboard Management:"
+echo "  obsctl config dashboard install  - Install dashboards to Grafana"
+echo "  obsctl config dashboard list     - List installed dashboards"
+echo "  obsctl config dashboard info     - Show dashboard information"
+echo ""
+echo "Dashboard files installed to: /usr/share/obsctl/dashboards/"

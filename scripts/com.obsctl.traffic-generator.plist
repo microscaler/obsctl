@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.obsctl.traffic-generator</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/casibbald/Workspace/microscaler/obsctl/scripts/generate_traffic.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/casibbald/Workspace/microscaler/obsctl</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/casibbald/Workspace/microscaler/obsctl/traffic_generator_service.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/casibbald/Workspace/microscaler/obsctl/traffic_generator_service.error.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>OBSCTL_OTEL_ENABLED</key>
+        <string>true</string>
+        <key>OBSCTL_OTEL_ENDPOINT</key>
+        <string>http://127.0.0.1:4317</string>
+        <key>AWS_ACCESS_KEY_ID</key>
+        <string>minioadmin</string>
+        <key>AWS_SECRET_ACCESS_KEY</key>
+        <string>minioadmin123</string>
+        <key>AWS_ENDPOINT_URL</key>
+        <string>http://127.0.0.1:9000</string>
+        <key>AWS_REGION</key>
+        <string>us-east-1</string>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+</dict>
+</plist>

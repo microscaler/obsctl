@@ -1,0 +1,493 @@
+.TH OBSCTL 1 "July 2025" "obsctl 0.1.0" # x-release-please-version "User Commands"
+.SH NAME
+obsctl \- A comprehensive S3-compatible storage CLI tool for any S3-compatible service
+.SH SYNOPSIS
+.B obsctl
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fICOMMAND-OPTIONS\fR] [\fIARGS\fR]
+.SH DESCRIPTION
+.B obsctl
+is a powerful command-line interface for interacting with any S3-compatible object storage service. Originally designed to solve specific challenges with Cloud.ru Object Storage (OBS), it now supports AWS S3, MinIO, Ceph, DigitalOcean Spaces, Wasabi, Backblaze B2, and any S3-compatible storage with advanced features and optimizations.
+.PP
+obsctl provides AWS S3 CLI compatibility with additional features including advanced wildcard pattern matching for bucket operations, production-grade safety mechanisms, and comprehensive observability integration.
+.PP
+.B Supported S3-Compatible Providers:
+.nf
+• AWS S3 (s3.amazonaws.com)
+• Cloud.ru OBS (obs.ru-moscow-1.hc.sbercloud.ru) - Original use case
+• MinIO (localhost:9000) - Development and testing
+• Ceph RadosGW - Self-hosted object storage
+• DigitalOcean Spaces (nyc3.digitaloceanspaces.com)
+• Wasabi (s3.wasabisys.com) - Hot cloud storage
+• Backblaze B2 (s3.us-west-000.backblazeb2.com)
+• Any S3-compatible API endpoint
+.fi
+.SH GLOBAL OPTIONS
+.TP
+.BR \-\-debug " " \fILEVEL\fR
+Set log verbosity level. Valid levels: trace, debug, info, warn, error. Default: info
+.TP
+.BR \-e ", " \-\-endpoint " " \fIURL\fR
+Custom endpoint URL for any S3-compatible service (e.g., https://s3.wasabisys.com)
+.TP
+.BR \-r ", " \-\-region " " \fIREGION\fR
+AWS region. Default: us-east-1
+.TP
+.BR \-\-timeout " " \fISECONDS\fR
+Timeout in seconds for all HTTP operations. Default: 10
+.TP
+.BR \-h ", " \-\-help
+Print help information
+.TP
+.BR \-V ", " \-\-version
+Print version information
+.SH COMMANDS
+.SS ls - List Objects
+List objects in bucket or buckets with advanced pattern matching and enterprise-grade filtering support.
+.PP
+.B obsctl ls
+[\fIOPTIONS\fR] [\fIS3_URI\fR]
+.PP
+.B Arguments:
+.TP
+.I S3_URI
+S3 URI (s3://bucket/prefix) or bucket name. If omitted, lists all buckets.
+.PP
+.B Options:
+.TP
+.BR \-\-long
+Show detailed information including size, modification time, and storage class
+.TP
+.BR \-\-recursive
+Recursively list all objects under the specified prefix
+.TP
+.BR \-\-human-readable
+Display file sizes in human-readable format (KB, MB, GB)
+.TP
+.BR \-\-summarize
+Show summary statistics only
+.TP
+.BR \-\-pattern " " \fIPATTERN\fR
+Filter buckets using wildcard patterns. Supports: * (any chars), ? (single char), [abc] (char set), [a-z] (range), [!abc] (negated set)
+.PP
+.B Advanced Filtering Options:
+.TP
+.BR \-\-created-after " " \fIDATE\fR
+Show objects created after date. Supports YYYYMMDD format (20240101) or relative format (7d, 30d, 1y)
+.TP
+.BR \-\-created-before " " \fIDATE\fR
+Show objects created before date. Same format as \-\-created-after
+.TP
+.BR \-\-modified-after " " \fIDATE\fR
+Show objects modified after date. Same format as \-\-created-after
+.TP
+.BR \-\-modified-before " " \fIDATE\fR
+Show objects modified before date. Same format as \-\-created-after
+.TP
+.BR \-\-min-size " " \fISIZE\fR
+Minimum file size. Supports units: B, KB, MB, GB, TB, PB, KiB, MiB, GiB, TiB, PiB. Default unit: MB
+.TP
+.BR \-\-max-size " " \fISIZE\fR
+Maximum file size. Same format as \-\-min-size
+.TP
+.BR \-\-max-results " " \fINUM\fR
+Maximum number of results to return
+.TP
+.BR \-\-head " " \fINUM\fR
+Show only first N results (with performance optimization for large buckets)
+.TP
+.BR \-\-tail " " \fINUM\fR
+Show only last N results (automatically sorted by modification date)
+.TP
+.BR \-\-sort-by " " \fIFIELDS\fR
+Sort results by field(s). Single field: name, size, created, modified. Multi-level: modified:desc,size:asc,name:asc
+.TP
+.BR \-\-reverse
+Reverse sort order (only for single field sorting)
+.SS cp - Copy Files/Objects
+Copy files between local filesystem and S3, or between S3 locations.
+.PP
+.B obsctl cp
+[\fIOPTIONS\fR] \fISOURCE\fR \fIDEST\fR
+.PP
+.B Arguments:
+.TP
+.I SOURCE
+Source path (local file/directory or s3://bucket/key)
+.TP
+.I DEST
+Destination path (local file/directory or s3://bucket/key)
+.PP
+.B Options:
+.TP
+.BR \-\-recursive
+Copy directories recursively
+.TP
+.BR \-\-dryrun
+Show what would be copied without actually performing the operation
+.TP
+.BR \-\-max-concurrent " " \fINUM\fR
+Maximum number of parallel operations. Default: 4
+.TP
+.BR \-\-force
+Force overwrite existing files
+.TP
+.BR \-\-include " " \fIPATTERN\fR
+Include only files matching the specified pattern
+.TP
+.BR \-\-exclude " " \fIPATTERN\fR
+Exclude files matching the specified pattern
+.SS sync - Synchronize Directories
+Synchronize directories between local filesystem and S3.
+.PP
+.B obsctl sync
+[\fIOPTIONS\fR] \fISOURCE\fR \fIDEST\fR
+.PP
+.B Arguments:
+.TP
+.I SOURCE
+Source directory (local path or s3://bucket/prefix)
+.TP
+.I DEST
+Destination directory (local path or s3://bucket/prefix)
+.PP
+.B Options:
+.TP
+.BR \-\-delete
+Delete files in destination that don't exist in source
+.TP
+.BR \-\-dryrun
+Show what would be synchronized without performing the operation
+.TP
+.BR \-\-max-concurrent " " \fINUM\fR
+Maximum number of parallel operations. Default: 4
+.TP
+.BR \-\-include " " \fIPATTERN\fR
+Include only files matching the specified pattern
+.TP
+.BR \-\-exclude " " \fIPATTERN\fR
+Exclude files matching the specified pattern
+.SS rm - Remove Objects
+Remove objects from S3 storage.
+.PP
+.B obsctl rm
+[\fIOPTIONS\fR] \fIS3_URI\fR
+.PP
+.B Arguments:
+.TP
+.I S3_URI
+S3 URI (s3://bucket/key) of object(s) to remove
+.PP
+.B Options:
+.TP
+.BR \-\-recursive
+Delete objects recursively under the specified prefix
+.TP
+.BR \-\-dryrun
+Show what would be deleted without performing the operation
+.TP
+.BR \-\-include " " \fIPATTERN\fR
+Include only objects matching the specified pattern
+.TP
+.BR \-\-exclude " " \fIPATTERN\fR
+Exclude objects matching the specified pattern
+.SS mb - Make Bucket
+Create a new S3 bucket.
+.PP
+.B obsctl mb
+[\fIOPTIONS\fR] \fIS3_URI\fR
+.PP
+.B Arguments:
+.TP
+.I S3_URI
+S3 URI (s3://bucket-name) of bucket to create
+.SS rb - Remove Bucket
+Remove an empty S3 bucket or multiple buckets with advanced pattern matching.
+.PP
+.B obsctl rb
+[\fIOPTIONS\fR] [\fIS3_URI\fR]
+.PP
+.B Arguments:
+.TP
+.I S3_URI
+S3 URI (s3://bucket-name) of bucket to remove. Optional when using \-\-all or \-\-pattern
+.PP
+.B Options:
+.TP
+.BR \-\-force
+Force removal by deleting all objects in the bucket first
+.TP
+.BR \-\-all
+Remove all buckets (requires \-\-confirm)
+.TP
+.BR \-\-pattern " " \fIPATTERN\fR
+Remove buckets matching wildcard pattern (requires \-\-confirm). Supports same patterns as ls command
+.TP
+.BR \-\-confirm
+Confirm destructive operations (required for \-\-all or \-\-pattern)
+.SS presign - Generate Presigned URLs
+Generate presigned URLs for temporary access to S3 objects.
+.PP
+.B obsctl presign
+[\fIOPTIONS\fR] \fIS3_URI\fR
+.PP
+.B Arguments:
+.TP
+.I S3_URI
+S3 URI (s3://bucket/key) of object to generate URL for
+.PP
+.B Options:
+.TP
+.BR \-\-expires-in " " \fISECONDS\fR
+URL expiration time in seconds. Default: 3600 (1 hour)
+.SS head-object - Show Object Metadata
+Display metadata information for an S3 object.
+.PP
+.B obsctl head-object
+[\fIOPTIONS\fR] \fB\-\-bucket\fR \fIBUCKET\fR \fB\-\-key\fR \fIKEY\fR
+.PP
+.B Required Options:
+.TP
+.BR \-\-bucket " " \fIBUCKET\fR
+S3 bucket name
+.TP
+.BR \-\-key " " \fIKEY\fR
+S3 object key
+.SS du - Disk Usage
+Show storage usage statistics for S3 buckets and prefixes.
+.PP
+.B obsctl du
+[\fIOPTIONS\fR] \fIS3_URI\fR
+.PP
+.B Arguments:
+.TP
+.I S3_URI
+S3 URI (s3://bucket/prefix) to analyze
+.PP
+.B Options:
+.TP
+.BR \-\-human-readable
+Display sizes in human-readable format
+.TP
+.BR \-s ", " \-\-summarize
+Show summary statistics only
+.SH CONFIGURATION
+obsctl uses AWS-compatible configuration methods for any S3-compatible provider:
+.TP
+.B Environment Variables:
+.nf
+AWS_ACCESS_KEY_ID       - Access key ID (required)
+AWS_SECRET_ACCESS_KEY   - Secret access key (required)
+AWS_ENDPOINT_URL        - Custom endpoint URL (for non-AWS providers)
+AWS_REGION              - Default region
+AWS_PROFILE             - Profile name
+OTEL_EXPORTER_OTLP_ENDPOINT - OpenTelemetry endpoint
+OTEL_SERVICE_NAME       - Service name for telemetry
+.fi
+.TP
+.B Configuration Files:
+.nf
+~/.aws/credentials      - AWS credentials
+~/.aws/config          - AWS configuration
+~/.aws/otel            - OTEL configuration
+.fi
+.SH EXAMPLES
+.SS Basic Operations (Any S3 Provider)
+.TP
+.B List all buckets:
+obsctl ls
+.TP
+.B List buckets with wildcard patterns:
+obsctl ls --pattern "*-prod"
+.br
+obsctl ls --pattern "user-[0-9]-*"
+.br
+obsctl ls --pattern "logs-202[3-4]"
+.TP
+.B Upload a file:
+obsctl cp file.txt s3://my-bucket/file.txt
+.TP
+.B Download a file:
+obsctl cp s3://my-bucket/file.txt downloaded-file.txt
+.TP
+.B Create and remove buckets:
+obsctl mb s3://new-bucket
+.br
+obsctl rb s3://old-bucket --force
+.TP
+.B Pattern-based bucket removal:
+obsctl rb --pattern "test-*" --confirm
+.br
+obsctl rb --pattern "temp-[0-9]*" --confirm
+.SS Provider-Specific Examples
+.TP
+.B AWS S3 (default):
+obsctl cp ./data s3://bucket/data --recursive
+.TP
+.B Cloud.ru OBS (original use case):
+obsctl cp ./data s3://bucket/data \\
+  --endpoint https://obs.ru-moscow-1.hc.sbercloud.ru \\
+  --region ru-moscow-1 --recursive
+.TP
+.B MinIO (development):
+obsctl cp ./data s3://bucket/data \\
+  --endpoint http://localhost:9000 \\
+  --region us-east-1 --recursive
+.TP
+.B DigitalOcean Spaces:
+obsctl cp ./data s3://space/data \\
+  --endpoint https://nyc3.digitaloceanspaces.com \\
+  --region nyc3 --recursive
+.TP
+.B Wasabi:
+obsctl cp ./data s3://bucket/data \\
+  --endpoint https://s3.wasabisys.com \\
+  --region us-east-1 --recursive
+.TP
+.B Backblaze B2:
+obsctl cp ./data s3://bucket/data \\
+  --endpoint https://s3.us-west-000.backblazeb2.com \\
+  --region us-west-000 --recursive
+.SS Advanced Filtering Examples
+.TP
+.B Date Filtering:
+.nf
+# Objects created after specific date
+obsctl ls s3://logs/ --created-after 20240101 --recursive
+
+# Objects modified in the last 7 days
+obsctl ls s3://data/ --modified-after 7d --recursive
+
+# Date range filtering
+obsctl ls s3://backups/ --created-after 20240101 --created-before 20240131 --recursive
+
+# Recent activity monitoring
+obsctl ls s3://user-data/ --modified-after 1d --sort-by modified:desc --head 50
+.fi
+.TP
+.B Size Filtering:
+.nf
+# Large files consuming storage (over 100MB)
+obsctl ls s3://media/ --min-size 100MB --sort-by size:desc --recursive
+
+# Small files for cleanup (under 1MB)
+obsctl ls s3://temp/ --max-size 1MB --created-before 30d --recursive
+
+# Size range filtering
+obsctl ls s3://data/ --min-size 10MB --max-size 1GB --recursive
+
+# Find huge files (over 1GB)
+obsctl ls s3://uploads/ --min-size 1GB --sort-by size:desc --head 20 --recursive
+.fi
+.TP
+.B Multi-Level Sorting:
+.nf
+# Sort by modification date (newest first), then by size (largest first)
+obsctl ls s3://bucket/ --sort-by modified:desc,size:desc --recursive
+
+# Sort by creation date (oldest first), then by name (alphabetical)
+obsctl ls s3://archive/ --sort-by created:asc,name:asc --recursive
+
+# Complex sorting: modified date, size, then name
+obsctl ls s3://data/ --sort-by modified:desc,size:asc,name:asc --recursive
+.fi
+.TP
+.B Result Management:
+.nf
+# Show first 100 results (performance optimized)
+obsctl ls s3://large-bucket/ --head 100 --recursive
+
+# Show last 50 modified files
+obsctl ls s3://active-data/ --tail 50 --recursive
+
+# Limit results with filtering
+obsctl ls s3://logs/ --modified-after 7d --max-results 1000 --recursive
+
+# Recent large files
+obsctl ls s3://uploads/ --min-size 50MB --modified-after 1d --tail 20 --recursive
+.fi
+.TP
+.B Enterprise Use Cases:
+.nf
+# Data lifecycle management - find old files for archival
+obsctl ls s3://production-data/ --modified-before 20230101 --min-size 1MB \\
+  --sort-by modified --max-results 10000 --recursive
+
+# Security auditing - files modified recently
+obsctl ls s3://sensitive-data/ --modified-after 1d --sort-by modified:desc \\
+  --max-results 500 --recursive
+
+# Storage optimization - small old files
+obsctl ls s3://archive-bucket/ --created-before 20230101 --max-size 1MB \\
+  --sort-by size:asc --max-results 5000 --recursive
+
+# Operational monitoring - recent error logs
+obsctl ls s3://application-logs/ --pattern "error-*" --modified-after 1d \\
+  --sort-by modified:desc --head 20
+
+# Cost optimization - large recent uploads
+obsctl ls s3://user-uploads/ --created-after 7d --min-size 100MB \\
+  --sort-by created:desc,size:desc --recursive
+.fi
+.TP
+.B Combined Pattern and Filter Operations:
+.nf
+# Production buckets with recent large files
+obsctl ls --pattern "*-prod" | while read bucket; do
+  obsctl ls "$bucket" --min-size 1GB --modified-after 7d --recursive
+done
+
+# Backup verification - recent backups over 100MB
+obsctl ls s3://backups/ --pattern "backup-*" --created-after 1d \\
+  --min-size 100MB --sort-by created:desc
+.fi
+.SS Advanced Operations
+.TP
+.B Synchronize with deletion:
+obsctl sync ./local-dir s3://my-bucket/backup --delete
+.TP
+.B Generate presigned URLs:
+obsctl presign s3://my-bucket/file.txt --expires-in 86400
+.TP
+.B Show storage usage:
+obsctl du s3://my-bucket --human-readable --summarize
+.TP
+.B Dry run operations:
+obsctl sync ./local-dir s3://my-bucket/backup --dryrun
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+General error
+.TP
+.B 2
+Configuration error
+.TP
+.B 3
+Network error
+.TP
+.B 4
+Authentication error
+.SH FILES
+.TP
+.I ~/.aws/credentials
+AWS credentials file
+.TP
+.I ~/.aws/config
+AWS configuration file
+.TP
+.I ~/.aws/otel
+OpenTelemetry configuration file
+.SH SEE ALSO
+.BR aws (1),
+.BR s3cmd (1),
+.BR rclone (1),
+.BR mc (1)
+.SH BUGS
+Report bugs at: https://github.com/your-org/obsctl/issues
+.SH AUTHOR
+obsctl development team
+.SH COPYRIGHT
+Copyright (c) 2025 obsctl contributors. Licensed under MIT License.

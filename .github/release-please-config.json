@@ -1,0 +1,21 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "rust",
+      "extra-files": [
+        "packaging/homebrew/obsctl.rb",
+        "packaging/debian/control",
+        "packaging/rpm/obsctl.spec",
+        "packaging/obsctl.1",
+        "README.md",
+        "tests/integration/run_tests.sh",
+        "tests/integration/README.md",
+        "packaging/README.md",
+        "packaging/homebrew/README.md",
+        "packaging/chocolatey/README.md",
+        "packaging/chocolatey/POWERSHELL_CONSIDERATIONS.md"
+      ]
+    }
+  },
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+} 
